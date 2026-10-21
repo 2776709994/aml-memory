@@ -9,7 +9,7 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Track | **Textual Memory** |
 | Division | **Open-source Methods** (prize-eligible) |
 | Public repository | <https://github.com/2776709994/aml-memory> |
-| Pinned commit | `68a46b0e77b82e52c75fe8861db03cf618c39daf` |
+| Pinned commit | tag **`v1.0`** — resolve with `git rev-parse v1.0^{commit}` (a tag, so the hash stays valid however many doc commits follow) |
 | License | MIT |
 | Add URL | `https://<your-domain>/add` |
 | Search URL | `https://<your-domain>/search` |
