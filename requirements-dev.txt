@@ -1,0 +1,4 @@
+# Local development / offline evaluation only.  The submitted service uses the
+# AML-mandated hosted embedder (text-embedding-v4), so none of this ships to prod.
+torch>=2.2
+sentence-transformers>=3.0

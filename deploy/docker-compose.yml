@@ -1,0 +1,56 @@
+services:
+  aml-memory:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: aml-memory:latest
+    container_name: aml-memory
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      # The volume is mounted at /data; force it so a local-dev .env cannot
+      # silently write the database into the container filesystem.
+      AML_DATA_DIR: /data
+    volumes:
+      - aml-data:/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # Retrieval is CPU-light per user but ingest embeds text; keep the box honest.
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: aml-caddy
+    restart: unless-stopped
+    depends_on:
+      aml-memory:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      AML_DOMAIN: ${AML_DOMAIN:?set AML_DOMAIN in .env to your public hostname}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  aml-data:
+  caddy-data:
+  caddy-config:

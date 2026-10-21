@@ -1,0 +1,21 @@
+# Automatic HTTPS.  The platform only talks to these three paths, so nothing else
+# is exposed; the container itself never sees the public internet directly.
+#
+#   AML_DOMAIN is injected by docker-compose from ../.env (the repo-root .env)
+{$AML_DOMAIN} {
+	encode zstd gzip
+
+	# Long ingest calls: the platform allows up to 30 min per Add.
+	reverse_proxy aml-memory:8000 {
+		transport http {
+			read_timeout 1900s
+			write_timeout 1900s
+		}
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

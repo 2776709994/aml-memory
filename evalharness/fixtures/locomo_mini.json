@@ -1,0 +1,46 @@
+[
+ {
+  "sample_id": "conv-mini",
+  "conversation": {
+   "speaker_a": "Caroline",
+   "speaker_b": "Melanie",
+   "session_1_date_time": "1:56 pm on 8 May, 2023",
+   "session_1": [
+    {"speaker": "Caroline", "dia_id": "D1:1", "text": "Hey Mel! I finally went to the LGBTQ support group yesterday, it was really empowering."},
+    {"speaker": "Melanie", "dia_id": "D1:2", "text": "That is wonderful, Caroline! How did it feel to be around people who understand?"},
+    {"speaker": "Caroline", "dia_id": "D1:3", "text": "Honestly it was the first time I did not feel like the odd one out. I am going again next week."},
+    {"speaker": "Melanie", "dia_id": "D1:4", "text": "I spent the morning painting a sunrise over the lake, the colours came out better than I hoped."},
+    {"speaker": "Caroline", "dia_id": "D1:5", "text": "You have to show me. Do you still use the same acrylic set?"},
+    {"speaker": "Melanie", "dia_id": "D1:6", "text": "Yes, though I switched to a wider flat brush for the sky, it holds water much better."}
+   ],
+   "session_2_date_time": "3:12 pm on 20 June, 2023",
+   "session_2": [
+    {"speaker": "Melanie", "dia_id": "D2:1", "text": "Guess what, I entered the sunrise painting into the county fair and it took second place."},
+    {"speaker": "Caroline", "dia_id": "D2:2", "text": "Second place! That is amazing, Mel. I told you the wider brush was a good idea."},
+    {"speaker": "Caroline", "dia_id": "D2:3", "text": "Meanwhile I started volunteering at the support group as a greeter, I like welcoming the newcomers."},
+    {"speaker": "Melanie", "dia_id": "D2:4", "text": "That suits you. Do you still have time for the pottery class on Thursdays?"},
+    {"speaker": "Caroline", "dia_id": "D2:5", "text": "I dropped pottery, the glazing kiln schedule clashed with the greeter shifts."},
+    {"speaker": "Melanie", "dia_id": "D2:6", "text": "Fair enough. I am thinking of trying pottery myself in the autumn."}
+   ],
+   "session_3_date_time": "9:05 am on 3 September, 2023",
+   "session_3": [
+    {"speaker": "Caroline", "dia_id": "D3:1", "text": "Big news, I am moving to Portland in November for a job at the community centre."},
+    {"speaker": "Melanie", "dia_id": "D3:2", "text": "Portland! I will miss our Tuesday coffee, but that role sounds made for you."},
+    {"speaker": "Melanie", "dia_id": "D3:3", "text": "I finally started the pottery class, my first bowl is lopsided but usable."},
+    {"speaker": "Caroline", "dia_id": "D3:4", "text": "Lopsided bowls hold soup just fine. Send a photo before I leave."}
+   ]
+  },
+  "qa": [
+   {"question": "When did Caroline first attend the LGBTQ support group?", "answer": "7 May 2023", "evidence": ["D1:1"], "category": 2},
+   {"question": "What did Melanie paint in the morning of 8 May 2023?", "answer": "a sunrise over the lake", "evidence": ["D1:4"], "category": 4},
+   {"question": "Which brush did Melanie switch to for painting skies?", "answer": "a wider flat brush", "evidence": ["D1:6"], "category": 4},
+   {"question": "How did Melanie's sunrise painting do at the county fair?", "answer": "it took second place", "evidence": ["D2:1"], "category": 4},
+   {"question": "Why did Caroline stop attending the pottery class?", "answer": "the glazing kiln schedule clashed with her greeter shifts", "evidence": ["D2:5"], "category": 1},
+   {"question": "What volunteer role did Caroline take at the support group?", "answer": "a greeter", "evidence": ["D2:3"], "category": 4},
+   {"question": "When is Caroline moving to Portland and why?", "answer": "in November, for a job at the community centre", "evidence": ["D3:1"], "category": 2},
+   {"question": "What did Melanie start in the autumn?", "answer": "a pottery class", "evidence": ["D3:3"], "category": 4},
+   {"question": "How many sessions did Caroline and Melanie have in total, and what did Melanie achieve in the second one?", "answer": "three sessions; second place at the county fair", "evidence": ["D1:1", "D2:1", "D3:1"], "category": 1},
+   {"question": "What color did Melanie say the sky came out as?", "answer": "not mentioned", "evidence": [], "category": 5, "adversarial_answer": "blue"}
+  ]
+ }
+]
