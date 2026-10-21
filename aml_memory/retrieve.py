@@ -233,7 +233,7 @@ class Retriever:
             if normalized in seen_exact:
                 continue
             tokens = _tokens(unit.text)
-            if any(_jaccard(tokens, other) > 0.85 for other in seen_tokens[-120:]):
+            if any(_jaccard(tokens, other) > self.settings.dedupe_jaccard for other in seen_tokens[-120:]):
                 continue
             selected.append((idx, score))
             seen_exact.add(normalized)

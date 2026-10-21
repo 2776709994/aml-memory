@@ -316,6 +316,7 @@ The ones that actually change behaviour:
 | `AML_CONTEXT_TOP` | 30 | how many top hits get the full radius |
 | `AML_CONTEXT_FILL` | 100 | ranks below `context_top` get a radius-1 window |
 | `AML_CONTEXT_FILL_TO` | 0 | >0 refills the list to that many items after widening absorbs turns |
+| `AML_DEDUPE_JACCARD` | 0.85 | token-set overlap above which two items are the same memory |
 | `AML_MERGE_MAX_UNITS` | 3 | same-speaker run length cap |
 | `AML_MAX_CONTENT_CHARS` | 700 | per-item soft cap (merged runs get 3×) |
 | `AML_TOTAL_CHAR_BUDGET` | 120000 | total characters handed to the reader |

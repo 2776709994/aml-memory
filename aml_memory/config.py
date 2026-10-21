@@ -97,6 +97,9 @@ class Settings:
     min_items: int = field(default_factory=lambda: _env_int("AML_MIN_ITEMS", 8))
     expand_neighbors: int = field(default_factory=lambda: _env_int("AML_EXPAND_NEIGHBORS", 1))
     merge_max_units: int = field(default_factory=lambda: _env_int("AML_MERGE_MAX_UNITS", 3))
+    # Items whose token sets overlap this much are treated as the same memory and
+    # dropped from the tail: a repeat is pure distraction for the reader.
+    dedupe_jaccard: float = field(default_factory=lambda: _env_float("AML_DEDUPE_JACCARD", 0.85))
     # Volume knob: widen the top hits into a same-session context window.  Item
     # size is uncapped by the platform and the answer budget is ~117,760 tokens,
     # so the ranked head can carry far more evidence than one turn per item.

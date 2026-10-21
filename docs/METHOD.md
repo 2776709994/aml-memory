@@ -74,7 +74,7 @@ input.
 5. **Rerank.** The fused head (60 candidates) is scored by `gte-rerank-v2` through
    the DashScope rerank endpoint; on failure the reranked scores are ignored and the
    fused order stands (the service degrades, it does not error).
-6. **Assembly.** Dedupe (exact + Jaccard > .85), join short same-speaker runs
+6. **Assembly.** Dedupe (exact + Jaccard > `AML_DEDUPE_JACCARD`, default .85), join short same-speaker runs
    (≤3 turns), then **two-tier context widening**: each of the 30 highest-ranked
    blocks is expanded into its same-session window of ±2 turns, ranks 30–99 get a
    ±1 window, and every turn absorbed by a window is removed from the tail so no

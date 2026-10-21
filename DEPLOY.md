@@ -170,6 +170,16 @@ Full 期间服务版本会被冻结，别改代码、别升级依赖、别动 `.
 * **日志**：`docker compose logs -f aml-memory`；已限制单文件 50 MB × 5。
 * **健康检查**：Caddy 依赖 `service_healthy` 才启动，健康检查失败时不会对外提供服务，
   避免把 502 暴露给评测。
+* **规模**：本机压测（真 `text-embedding-v4`、6 并发）写入约 **800 轮/秒**、
+  检索 p50 **63 ms / p95 81 ms**（1,800 轮、6 用户、8 路重试风暴均正常）。
+  正式 Full 的数据量是亿级 token 级别，瓶颈在 embedding 接口的 QPS 而不在本服务：
+  看 `docker compose logs` 里 `add` 的耗时，或 `GET /admin/stats`（要带 token）里的
+  `units` / `add_requests` 增长是否停滞；需要更快就把 `EMBED_CONCURRENCY`
+  （默认 6）和 `EMBED_BATCH`（默认 10）往上调，并同步调大
+  `AML_MAX_CONCURRENT_INGEST`（默认 8）。
+* **内存**：索引缓存有硬上限（`AML_INDEX_CACHE_COUNT` / `AML_INDEX_CACHE_VECTORS`），
+  embedding 缓存按字节封顶（`EMBED_CACHE_MB`，float16）。2 GB 机器跑评测数据量没问题；
+  如果 `docker stats` 看到 RSS 逼近上限，先把这两个索引缓存值调小，不要动检索参数。
 
 ## 8. 常见问题
 

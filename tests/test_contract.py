@@ -126,6 +126,18 @@ def test_bad_payload_is_rejected_without_retry(client):
     assert 400 <= response.status_code < 500
 
 
+def test_search_without_query_is_a_client_error(client):
+    response = client.post("/search", json={"user_id": "u1", "top_k": 5})
+    assert 400 <= response.status_code < 500
+
+
+def test_empty_query_is_an_empty_answer(client):
+    """An empty query is legal input and must not be a 4xx (that would fail a stage)."""
+    response = client.post("/search", json={"query": "", "user_id": "u1", "top_k": 5})
+    assert response.status_code == 200
+    assert response.json() == {"data": []}
+
+
 def test_mcq_options_are_accepted(client):
     _add(client)
     response = client.post(
