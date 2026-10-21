@@ -52,7 +52,9 @@ input.
    after the commit, and the per-user search index is invalidated, so the memory is
    searchable the moment `add` returns. A retried `request_id` (the platform retries
    up to 32 times, and two retries can be in flight at once) is a no-op — including
-   after a restart, because the claim lives in SQLite.
+   after a restart, because the claim lives in SQLite. Retries that arrive while the
+   first attempt is still running wait on a per-`request_id` lock and re-check the
+   claim, so one Add is embedded once even under a retry storm.
 
 ## 3. Read path (`POST /search`)
 

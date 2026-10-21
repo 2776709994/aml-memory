@@ -1,4 +1,4 @@
-﻿"""Durability tests: the guarantees that a 1-2 day Full run depends on.
+"""Durability tests: the guarantees that a 1-2 day Full run depends on.
 
 A Full run retries a timed-out Add with the *same* request_id (up to 32 times) and
 may restart the process while doing so, so two invariants have to hold:
@@ -90,6 +90,28 @@ def test_concurrent_retries_write_once(tmp_path, monkeypatch):
         hits = client.post("/search", json={"query": "tomatoes", "user_id": "u1",
                                             "top_k": 10}).json()["data"]
         assert len(hits) == 1, f"duplicate memories returned: {len(hits)}"
+
+
+def test_retry_storm_embeds_once(tmp_path, monkeypatch):
+    """A retried Add must not pay for the embedding twice: same request_id, one batch."""
+    app = _fresh_app(tmp_path, monkeypatch)
+    embeddings = importlib.import_module("aml_memory.embeddings")
+    calls: list[int] = []
+    original = embeddings.Embedder.embed_documents
+
+    def counting(self, texts, *args, **kwargs):
+        calls.append(len(texts))
+        return original(self, texts, *args, **kwargs)
+
+    monkeypatch.setattr(embeddings.Embedder, "embed_documents", counting)
+
+    with TestClient(app) as client:
+        payload = _payload("req-storm", "Bob: I planted tomatoes last spring.")
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            codes = list(pool.map(lambda _: client.post("/add", json=payload).status_code, range(8)))
+        assert set(codes) == {200}, codes
+        assert len(calls) == 1, f"embedded {len(calls)} times for one request_id"
+        assert _count_units(client) == 1
 
 
 def test_add_without_timestamp_is_accepted(tmp_path, monkeypatch):

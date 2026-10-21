@@ -130,6 +130,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not supplied or not hmac.compare_digest(supplied, settings.api_key):
             raise HTTPException(status_code=401, detail="unauthorized")
 
+    # One lock per request_id, so a retry storm on the same Add embeds the batch
+    # once instead of once per retry: the platform may send up to 32 attempts with
+    # an identical request_id while the first is still running.
+    inflight: dict[str, threading.Lock] = {}
+    inflight_guard = threading.Lock()
+
+    def request_lock(request_id: str) -> threading.Lock:
+        with inflight_guard:
+            if len(inflight) > 50_000:
+                for key in [k for k, lock in inflight.items() if not lock.locked()]:
+                    inflight.pop(key, None)
+            return inflight.setdefault(request_id, threading.Lock())
+
     @app.get(_normalize_path(settings.health_path))
     def health() -> dict[str, Any]:
         return {"status": "ok", "service": "aml-memory", "version": VERSION}
@@ -164,20 +177,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return {"success": True, "request_id": req.request_id,
                     "user_id": req.user_id, "session_id": req.session_id}
 
-        messages = parse_messages(req.messages)
-        units = ingestor.build_units(
-            request_id=request_id, user_id=user_id, session_id=session_id, messages=messages,
-        )
-        with ingest_gate:
-            vectors = embedder.embed_documents([unit.text for unit in units]) if units else []
-            store.insert_add(
-                request_id=request_id,
-                user_id=user_id,
-                session_id=session_id,
-                units=units,
-                vectors=vectors,
-                model=settings.embed_model,
+        lock = request_lock(request_id)
+        with lock:
+            # Re-check under the lock: a concurrent retry of the same request may
+            # have committed while we waited, and embedding twice is wasted money.
+            if store.request_seen(request_id):
+                LOG.info("add replay (raced) request_id=%s user=%s units=0", request_id, user_id)
+                return {"success": True, "request_id": req.request_id,
+                        "user_id": req.user_id, "session_id": req.session_id}
+            messages = parse_messages(req.messages)
+            units = ingestor.build_units(
+                request_id=request_id, user_id=user_id, session_id=session_id, messages=messages,
             )
+            with ingest_gate:
+                vectors = embedder.embed_documents([unit.text for unit in units]) if units else []
+                store.insert_add(
+                    request_id=request_id,
+                    user_id=user_id,
+                    session_id=session_id,
+                    units=units,
+                    vectors=vectors,
+                    model=settings.embed_model,
+                )
         elapsed = (time.perf_counter() - started) * 1000
         LOG.info(
             "add request_id=%s user=%s session=%s messages=%d units=%d %.0fms",
