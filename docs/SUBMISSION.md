@@ -9,7 +9,7 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Track | **Textual Memory** |
 | Division | **Open-source Methods** (prize-eligible) |
 | Public repository | <https://github.com/2776709994/aml-memory> |
-| Pinned commit | tag **`v1.0`** — resolve with `git rev-parse v1.0^{commit}` (a tag, so the hash stays valid however many doc commits follow) |
+| Pinned commit | tag **`v1.1`** — resolve with `git rev-parse v1.1^{commit}` (a tag, so the hash stays valid however many doc commits follow) |
 | License | MIT |
 | Add URL | `https://<your-domain>/add` |
 | Search URL | `https://<your-domain>/search` |
@@ -20,14 +20,16 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Reranker | `gte-rerank-v2` (hosted; rerankers are unrestricted) |
 | Method summary | Retrieval-only hybrid memory: per-turn records with speaker + absolute-date anchoring, dense cosine + BM25 fused by weighted RRF on ranks, hosted cross-encoder rerank, two-tier same-session context widening |
 | Full method disclosure | [`docs/METHOD.md`](METHOD.md) |
-| Measured on LoCoMo-Refined | R@1 .748 / R@10 .957 / MRR .827 at `top_k=100`, 134 ms/query |
+| Measured on LoCoMo-Refined | R@1 .748 / R@10 .957 / MRR .827 at `top_k=100`, 134 ms/query; end-to-end reader proxy on the 281 hard questions .459 with context widening vs .413 without |
 | Contact / team | *fill in* |
 
 ## Evidence attached to the repo
 
 * `evalharness/` — the harness that produced every number in `README.md` §3 and
-  `docs/METHOD.md` §5 (replays a public suite through the real app).
-* `tests/` — 33 offline tests covering the API contract, the text pipeline, crash
+  `docs/METHOD.md` §5 (replays a public suite through the real app), including
+  `answer.py`, which renders the official answer prompt and judge so the context
+  volume is measured end to end rather than by recall alone.
+* `tests/` — 36 offline tests covering the API contract, the text pipeline, crash
   safety and assembly behaviour.
 * `scripts/loadtest.py` — concurrent ingest/search/retry-storm checker.
 
