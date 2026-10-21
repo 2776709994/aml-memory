@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from aml_memory.timeutil import anchor_relative_times, parse_datetime
+from aml_memory.timeutil import anchor_relative_times, header_date, parse_datetime
 from aml_memory.ingest import split_speaker
 
 
@@ -70,3 +70,38 @@ def test_url_is_not_mistaken_for_a_speaker():
     speaker, body = split_speaker("https://example.com/x: look at this", "user")
     assert speaker == "User"
     assert body.startswith("https://")
+
+
+def test_session_header_supplies_the_date():
+    """`/add` may carry no timestamp while the text carries the session clock."""
+    text = "--- Session 1 started at 1:56 pm on 8 May, 2023 ---\nCaroline: hi"
+    assert header_date(text) == dt.datetime(2023, 5, 8, 13, 56)
+
+
+def test_passing_mention_is_not_a_header():
+    assert header_date("Caroline: I met her on 3 May 2019 in Lisbon.") is None
+
+
+def test_missing_timestamps_carry_the_last_known_date(monkeypatch):
+    """Turns without a timestamp inherit the latest known date, not the batch start."""
+    for name, value in {
+        "AML_SKIP_DOTENV": "1", "EMBED_PROVIDER": "hash", "AML_INGEST_LLM": "off",
+        "AML_QUERY_LLM": "0", "RERANK_PROVIDER": "none",
+    }.items():
+        monkeypatch.setenv(name, value)
+    from aml_memory.config import load_settings
+    from aml_memory.ingest import Ingestor, Message
+    from aml_memory.llm import LLM
+
+    settings = load_settings()
+    ingestor = Ingestor(settings, LLM(settings))
+    messages = [
+        Message(role="user", content="Caroline: I start pottery today.",
+                timestamp="2023-05-08T13:56:00Z"),
+        Message(role="assistant", content="Melanie: lovely, I signed up yesterday."),
+        Message(role="user",
+                content="--- Session 2 started at 9:00 am on 12 June, 2023 ---\nCaroline: update"),
+    ]
+    units = ingestor.build_units(request_id="r1", user_id="u1", session_id="s1", messages=messages)
+    assert [unit.date_str for unit in units] == ["2023-05-08", "2023-05-08", "2023-06-12"]
+    assert "yesterday (7 May 2023)" in units[1].text

@@ -66,9 +66,23 @@ _MONTHS = {
 
 
 def parse_session_time(text: str) -> _dt.datetime | None:
-    """'1:56 pm on 8 May, 2023' -> datetime(2023, 5, 8, 13, 56)."""
+    """'1:56 pm on 8 May, 2023' -> datetime(2023, 5, 8, 13, 56).
+
+    Also accepts LongMemEval's ISO-ish form: '2023/05/30 (Tue) 23:40'.
+    """
     if not text:
         return None
+    raw = str(text)
+    iso = re.search(
+        r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:\s*\([A-Za-z]+\))?(?:\s*(\d{1,2}):(\d{2}))?",
+        raw,
+    )
+    if iso:
+        try:
+            return _dt.datetime(int(iso.group(1)), int(iso.group(2)), int(iso.group(3)),
+                                int(iso.group(4) or 0), int(iso.group(5) or 0))
+        except ValueError:
+            return None
     match = re.search(
         r"(?:(\d{1,2}):(\d{2})\s*(am|pm)\s*on\s*)?(\d{1,2})\s+([A-Za-z]+),?\s*(\d{4})",
         str(text),
@@ -218,7 +232,11 @@ def load_locomo_refined(path: str | Path) -> list[Instance]:
                 evidence = [evidence]
             answer = row.get("answer")
             if isinstance(answer, list):
-                answer = "; ".join(str(a) for a in answer)
+                # The official pipeline renders a list answer through `memory_text`,
+                # which joins with newlines.  Joining with "; " instead would make the
+                # judge read the list as one comma-list requiring EVERY item and mark
+                # a correct single alternative as WRONG.
+                answer = "\n".join(str(a) for a in answer)
             qas.append(
                 QA(
                     question=str(row.get("question") or "").strip(),
@@ -251,33 +269,52 @@ def _locomo_category(category: Any) -> str:
 
 
 def load_longmemeval(path: str | Path) -> list[Instance]:
-    """LongMemEval-S: `haystack_sessions` (list of {role, content}) + question/answer."""
-    rows = [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    """LongMemEval (oracle / S / M): one instance per question, one session per haystack entry.
+
+    `answer_session_ids` is session-level ground truth, so each answer session is
+    represented by its FIRST turn id: R@k then answers "did we reach the right
+    session", which is the metric LongMemEval itself reports.
+    """
+    raw = Path(path).read_text(encoding="utf-8")
+    if raw.lstrip().startswith("["):
+        rows = json.loads(raw)
+    else:
+        rows = [json.loads(line) for line in raw.splitlines() if line.strip()]
     instances: list[Instance] = []
     for row in rows:
         sessions_raw = row.get("haystack_sessions") or row.get("sessions") or []
         dates = row.get("haystack_dates") or []
+        ids = row.get("haystack_session_ids") or []
         sessions: list[Session] = []
+        first_turn: dict[str, str] = {}
         for index, session in enumerate(sessions_raw):
             when = parse_session_time(dates[index]) if index < len(dates) else None
-            turns = [
-                Turn(speaker=str(turn.get("role") or "user"), text=str(turn.get("content") or ""),
-                     timestamp=when)
-                for turn in session
-                if str(turn.get("content") or "").strip()
-            ]
+            sid = str(ids[index]) if index < len(ids) else f"s{index}"
+            turns: list[Turn] = []
+            for turn_index, turn in enumerate(session):
+                text = str(turn.get("content") or "")
+                if not text.strip():
+                    continue
+                dia = f"{sid}:{turn_index}"
+                if sid not in first_turn:
+                    first_turn[sid] = dia
+                turns.append(
+                    Turn(speaker=str(turn.get("role") or "user"), text=text,
+                         dia_id=dia, timestamp=when)
+                )
             sessions.append(Session(index=index, when=when, turns=turns))
         question = str(row.get("question") or "").strip()
         answer = row.get("answer")
         if isinstance(answer, list):
             answer = "; ".join(str(a) for a in answer)
+        evidence = [first_turn[str(e)] for e in row.get("answer_session_ids") or []
+                    if str(e) in first_turn]
         instances.append(
             Instance(
                 sample_id=str(row.get("question_id") or row.get("id") or f"lme-{len(instances)}"),
                 speakers=["user", "assistant"],
                 sessions=sessions,
-                qas=[QA(question=question, answer=str(answer or ""),
-                        evidence=[str(e) for e in row.get("answer_session_ids") or []],
+                qas=[QA(question=question, answer=str(answer or ""), evidence=evidence,
                         category=str(row.get("question_type") or ""))] if question else [],
             )
         )

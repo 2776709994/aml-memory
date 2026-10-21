@@ -69,6 +69,15 @@ Two deliberate choices:
    speaker, so every unit stays attributable no matter how the platform partitions
    a flat result list.
 
+A turn that arrives **without a timestamp** inherits the most recent date already
+known in the call, and can itself supply one: if its text carries a session header
+(`--- Session 1 started at 1:56 pm on 8 May, 2023 ---`) that date is adopted for the
+turn and carried forward. Only an explicit header counts — a date mentioned in
+passing ("I met her on 3 May") is an event, not the session's clock. Without this,
+a payload with no timestamps loses every temporal question in the session; with it,
+a chunk that spans days is still dated per day instead of being pinned to its first
+message.
+
 Units are linked to their neighbours (`prev_id`/`next_id`) and carry a monotonic
 per-user `seq`, so context can be recovered at read time.
 
@@ -199,6 +208,42 @@ Read-outs that shaped the default configuration:
 In `runs/` the same harness re-measures every knob (`evalharness/sweep.py`); treat
 gaps below ~0.01 as noise.
 
+### End-to-end check (reader proxy)
+
+Recall metrics reward things the reader does not care about, so the harness can also
+replay a **reader**: `evalharness/answer.py` renders the official
+`OPEN_ENDED_ANSWER_TEMPLATE` over the returned memories, answers, and scores the answer
+with the official `ACCURACY_PROMPT`. The real reader is `gpt-4o-mini`; that model is not
+reachable from here, so the local runs use `qwen-flash` to answer and `qwen-max` to
+judge. The absolute numbers are therefore **not** leaderboard scores — only the
+differences between configurations mean anything.
+
+| configuration | multi-hop (213) | open-domain (68) | both (281) | prompt tokens |
+|---|---|---|---|---|
+| single-turn items, widening off | .394 | .471 | .413 | 1.42 M |
+| **two-tier widening (shipped)** | **.446** | **.500** | **.459** | 3.10 M |
+
+The widening gain survives the reader (+4.6 points on the hard slices) at ~8 tokens of
+context per token of question, well inside the 117,760-token answer budget. Cropping the
+list to 30 items instead of 82 was neutral (.588 vs .579 overall on a 240-question
+sample), which is why the default keeps the wider list: with that much budget left,
+coverage is free.
+
+Failure analysis over 101 wrong verdicts (33 multi-hop, 29 open-domain, 26 temporal,
+13 single-hop) says the dominant multi-hop failure is **over-answering a list**, not
+missing evidence: gold `Figurines, shoes` → `a necklace, a pair of pink sneakers, and
+figurines` is WRONG under the judge's "no extra items" rule. Single-hop (.78) sits near
+the reader's ceiling.
+
+### A second suite (LongMemEval oracle)
+
+To check the design is not tuned to one corpus, the same service was replayed on
+LongMemEval `oracle` (500 questions, 948 sessions, 10,960 turns): R@1 .464, R@10 .996,
+MRR .632, answer-in-text .444, and by question type R@1 temporal-reasoning .617,
+multi-session .602, knowledge-update .282, single-session-user .114. Because the oracle
+split contains only the evidence sessions, coverage saturates at `top_k=100` and only
+ordering is informative — it is an overfitting guard, not a tuning target.
+
 ---
 
 ## 4. Compliance
@@ -264,10 +309,13 @@ The ones that actually change behaviour:
 | `AML_RRF_K` | 20 | RRF smoothing; smaller ⇒ sharper rank weighting |
 | `AML_DENSE_WEIGHT` / `AML_BM25_WEIGHT` | 1.0 / 1.0 | channel weights in the fusion |
 | `RERANK_PROVIDER` | `none` | `none` \| `dashscope` \| `local` |
-| `RERANK_DEPTH` | 120 | how many fused candidates get reranked |
+| `RERANK_DEPTH` | 60 | how many fused candidates get reranked |
+| `AML_QUERY_LLM` / `AML_INGEST_LLM` | off / off | any generative model must be `gpt-4o-mini`; both are off so nothing else is ever called |
 | `AML_EXPAND_NEIGHBORS` | 1 | ±1 turn of context around each hit, as separate items |
-| `AML_CONTEXT_RADIUS` | 0 | ≥1 packs each top hit *with* its neighbours into one item (see §3) |
-| `AML_CONTEXT_TOP` | 40 | how many top hits get widened |
+| `AML_CONTEXT_RADIUS` | 2 | ≥1 packs each top hit *with* its neighbours into one item (see §3) |
+| `AML_CONTEXT_TOP` | 30 | how many top hits get the full radius |
+| `AML_CONTEXT_FILL` | 100 | ranks below `context_top` get a radius-1 window |
+| `AML_CONTEXT_FILL_TO` | 0 | >0 refills the list to that many items after widening absorbs turns |
 | `AML_MERGE_MAX_UNITS` | 3 | same-speaker run length cap |
 | `AML_MAX_CONTENT_CHARS` | 700 | per-item soft cap (merged runs get 3×) |
 | `AML_TOTAL_CHAR_BUDGET` | 120000 | total characters handed to the reader |

@@ -21,7 +21,7 @@ from typing import Any, Sequence
 from .config import Settings
 from .llm import LLM
 from .store import Unit
-from .timeutil import anchor_relative_times, day_str, human_date, parse_datetime
+from .timeutil import anchor_relative_times, day_str, header_date, human_date, parse_datetime
 
 _SPEAKER_PREFIX = re.compile(r"^\s*([A-Z][A-Za-z0-9 .'\-]{0,28}?)\s*:\s+(?=\S)")
 _IMAGE_MARK = "[image]"
@@ -142,9 +142,17 @@ class Ingestor:
         human = human_date(ref_dt)
 
         units: list[Unit] = []
+        carry_dt = ref_dt
         for index, message in enumerate(parsed):
             speaker, body = split_speaker(message.content, message.role)
-            message_dt = parse_datetime(message.timestamp) or ref_dt
+            explicit = parse_datetime(message.timestamp)
+            # A message with no usable timestamp inherits the most recent date we
+            # know, and can itself supply one through an embedded session header.
+            # Falling back to the batch's first timestamp instead would pin every
+            # turn to the session start, which is wrong across a multi-day chunk.
+            message_dt = explicit or header_date(message.content) or carry_dt or ref_dt
+            if message_dt:
+                carry_dt = message_dt
             anchored = anchor_relative_times(body, message_dt or ref_dt)
             date_label = day_str(message_dt) or session_date
             readable = _readable_date(message_dt) if message_dt else ""

@@ -248,7 +248,9 @@ class Retriever:
         blocks = self._merge_adjacent(index, selected)
         blocks = self._expand_neighbours(index, blocks)
         blocks.sort(key=lambda block: block.score, reverse=True)
+        reserve = list(blocks)
         blocks = self._widen_top(index, blocks)
+        blocks = self._refill(index, blocks, reserve)
 
         out: list[Block] = []
         spent = 0
@@ -390,6 +392,29 @@ class Retriever:
                     position=block.position,
                 )
             )
+        return out
+
+    def _refill(self, index: UserIndex, blocks: list[Block], reserve: list[Block]) -> list[Block]:
+        """Pad the widened list back up to `context_fill_to` items.
+
+        Widening absorbs the turn ids it pulled into a window, so the returned list
+        comes out shorter than `top_k` (~82 of 100 measured on LoCoMo-Refined).
+        The reader keeps a PREFIX of our list and has ~117,760 tokens of budget,
+        so every unused slot is evidence we simply did not deliver.  Refill from
+        the pre-widening order, skipping blocks whose turns are already covered.
+        """
+        target = self.settings.context_fill_to
+        if target <= 0 or len(blocks) >= target:
+            return blocks
+        covered = {unit_id for block in blocks for unit_id in block.ids}
+        out = list(blocks)
+        for block in reserve:
+            if len(out) >= target:
+                break
+            if any(unit_id in covered for unit_id in block.ids):
+                continue
+            covered.update(block.ids)
+            out.append(block)
         return out
 
 

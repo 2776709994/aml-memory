@@ -128,6 +128,35 @@ the returned text" is the metric that matters, not retrieval alone.
 Every sweep writes a JSON with the full environment (embedding/retrieval settings,
 with API keys redacted) so any row can be reproduced from the artefact.
 
+### End-to-end reader check
+
+Recall is necessary but not sufficient, so a second harness replays the *reader*:
+`evalharness/answer.py` renders the official `OPEN_ENDED_ANSWER_TEMPLATE` over the
+returned memories, asks a hosted model for the answer, and grades it with the official
+`ACCURACY_PROMPT`. The graded pipeline uses `gpt-4o-mini` for both roles; that model is
+not reachable from the development environment, so the local runs use `qwen-flash` to
+answer and `qwen-max` to judge. **The absolute accuracies are not leaderboard scores** —
+only differences between configurations are meaningful.
+
+| configuration | multi-hop (n=213) | open-domain (n=68) | both (n=281) | prompt tokens |
+|---|---|---|---|---|
+| single-turn items (widening off) | .394 | .471 | .413 | 1.42 M |
+| two-tier widening (shipped) | .446 | .500 | .459 | 3.10 M |
+
+The widening gain therefore survives the reader, and the shipped configuration spends
+~8 tokens of context per token of question against a 117,760-token answer budget.
+Cropping to 30 items instead of 82 was neutral (.588 vs .579 on a 240-question
+sample), which is why coverage is not traded away for brevity.
+
+### Second suite
+
+LongMemEval `oracle` (500 questions, 948 sessions, 10,960 turns) was replayed with the
+same service to rule out corpus-specific tuning: R@1 .464, R@10 .996, MRR .632,
+answer-in-text .444; by type R@1 temporal-reasoning .617, multi-session .602,
+knowledge-update .282, single-session-user .114. The oracle split keeps only the
+evidence sessions, so at `top_k=100` coverage saturates and only ordering is
+informative — it is an overfitting guard, not a tuning target.
+
 ---
 
 ## 6. Compliance checklist

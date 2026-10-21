@@ -275,6 +275,45 @@ _MONTH_DAY = re.compile(
 )
 
 
+_HEADER_HINT = re.compile(r"(?:session\s*\d|date\s*[:\-–—]|timestamp|started\s+at|began\s+at)", re.I)
+_DAY_FIRST = re.compile(r"\b(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s*(\d{4})\b")
+_CLOCK = re.compile(r"\b(\d{1,2}):(\d{2})\s*(am|pm)\b", re.I)
+
+
+def header_date(text: str) -> _dt.datetime | None:
+    """Recover the session date from a header embedded in the message text.
+
+    The platform may send `/add` messages without a `timestamp` while the text
+    itself carries '--- Session 1 started at 1:56 pm on 8 May, 2023 ---'.  Losing
+    that date costs every temporal question in the session, so it is worth
+    recovering — but only from an explicit header, never from a date mentioned in
+    passing ("I met her on 3 May" is an event, not the session's clock).
+    """
+    if not text or not _HEADER_HINT.search(text):
+        return None
+    for match in _DAY_FIRST.finditer(text):
+        month = MONTHS.get(match.group(2).lower())
+        if not month:
+            continue
+        resolved = _safe_date(int(match.group(3)), month, int(match.group(1)))
+        if resolved is None:
+            continue
+        clock = None
+        for candidate in _CLOCK.finditer(text[: match.end()]):
+            clock = candidate
+        if clock is not None:
+            hour, minute = int(clock.group(1)), int(clock.group(2))
+            meridiem = clock.group(3).lower()
+            if meridiem == "pm" and hour != 12:
+                hour += 12
+            elif meridiem == "am" and hour == 12:
+                hour = 0
+            if 0 <= hour < 24 and 0 <= minute < 60:
+                resolved = resolved.replace(hour=hour, minute=minute)
+        return resolved
+    return None
+
+
 def extract_dates(text: str, ref: _dt.datetime | None = None) -> list[_dt.datetime]:
     """Dates mentioned in a question — used for temporal filtering of candidates."""
     found: list[_dt.datetime] = []

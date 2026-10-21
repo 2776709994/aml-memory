@@ -75,7 +75,9 @@ class Settings:
     llm_api_key: str = field(default_factory=lambda: _env("LLM_API_KEY"))
     llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", "gpt-4o-mini"))
     llm_timeout_s: int = field(default_factory=lambda: _env_int("LLM_TIMEOUT_S", 60))
-    query_llm: bool = field(default_factory=lambda: _env_bool("AML_QUERY_LLM", True))
+    # Off by default: the rules allow only gpt-4o-mini inside Add/Search, and an
+    # unconfigured deployment must not spend a failing network round trip per query.
+    query_llm: bool = field(default_factory=lambda: _env_bool("AML_QUERY_LLM", False))
     ingest_llm: str = field(default_factory=lambda: _env("AML_INGEST_LLM", "off").lower())
     session_summary_chars: int = field(default_factory=lambda: _env_int("AML_SESSION_SUMMARY_CHARS", 1200))
 
@@ -88,7 +90,7 @@ class Settings:
     rerank_model: str = field(default_factory=lambda: _env("RERANK_MODEL", "BAAI/bge-reranker-v2-m3"))
     rerank_base_url: str = field(default_factory=lambda: _env("RERANK_BASE_URL").rstrip("/"))
     rerank_api_key: str = field(default_factory=lambda: _env("RERANK_API_KEY"))
-    rerank_depth: int = field(default_factory=lambda: _env_int("RERANK_DEPTH", 120))
+    rerank_depth: int = field(default_factory=lambda: _env_int("RERANK_DEPTH", 60))
     rerank_batch: int = field(default_factory=lambda: _env_int("RERANK_BATCH", 16))
     max_content_chars: int = field(default_factory=lambda: _env_int("AML_MAX_CONTENT_CHARS", 700))
     total_char_budget: int = field(default_factory=lambda: _env_int("AML_TOTAL_CHAR_BUDGET", 120000))
@@ -103,6 +105,11 @@ class Settings:
     # ranks in [context_top, context_fill) get a radius-1 window: the head buys
     # precision, the middle keeps the list at single/degenerate granularity.
     context_fill: int = field(default_factory=lambda: _env_int("AML_CONTEXT_FILL", 100))
+    # Widening absorbs turn ids, so the list can end up shorter than `top_k` (we
+    # observed ~82 items).  The reader keeps a PREFIX of what we return and its
+    # budget is ~117,760 tokens, so an unused slot is wasted evidence: refill it
+    # from the pre-widening order.  0 = off.
+    context_fill_to: int = field(default_factory=lambda: _env_int("AML_CONTEXT_FILL_TO", 0))
     rrf_k: int = field(default_factory=lambda: _env_int("AML_RRF_K", 20))
     dense_weight: float = field(default_factory=lambda: _env_float("AML_DENSE_WEIGHT", 1.0))
     bm25_weight: float = field(default_factory=lambda: _env_float("AML_BM25_WEIGHT", 1.0))
