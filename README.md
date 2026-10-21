@@ -342,10 +342,14 @@ aml-memory/
 │  ├─ rerank.py           # hosted / local cross-encoder, or none
 │  └─ retrieve.py         # fusion, rerank, boost, assembly
 ├─ evalharness/           # offline evaluation against public suites
-│  ├─ datasets.py         # LoCoMo / LoCoMo-Refined loaders
+│  ├─ datasets.py         # LoCoMo / LoCoMo-Refined / LongMemEval loaders
 │  ├─ runner.py           # replay a suite through the real app, score it
+│  ├─ answer.py           # replay the official reader prompt + judge
 │  ├─ sweep.py            # named configuration grid
 │  └─ diagnose.py         # why did this question miss?
+├─ scripts/
+│  ├─ verify_endpoint.py  # 15-check contract probe for a deployed endpoint
+│  └─ loadtest.py         # concurrent ingest / search / retry-storm check
 ├─ tests/                 # contract, text-processing and durability tests
 ├─ deploy/                # docker-compose + Caddyfile
 └─ Dockerfile

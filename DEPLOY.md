@@ -121,6 +121,21 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://memory.example.com/sear
 
 四条都对，就可以去平台登记了。
 
+更省事的办法：用仓库自带的一次性契约自检脚本（覆盖健康检查、鉴权、写入即可见、
+`request_id` 重放、`top_k` 截断、未知用户空列表、错误请求必须 4xx、检索延迟）：
+
+```bash
+# 在 VPS 上（或在任何能访问该域名的机器上）
+python3 -m pip install httpx
+python3 scripts/verify_endpoint.py --base-url https://memory.example.com \
+    --token '你的AML_API_KEY'
+# → PASS/FAIL 表格；最后一行 "all 15 checks passed" 才算过
+```
+
+注意脚本会用一个随机 `user_id`（`probe-xxxxxxxx`）写几条测试数据，讲完就留在库里，
+不影响正式评测（`user_id` 是唯一的隔离边界）；介意的话 Full 前删掉卷再重建也行，
+但重建会丢掉已写入的历史——正常情况下不必。
+
 ## 6. 在 AML 平台登记
 
 在 Agent Memory Leaderboard 的提交/评测页面填：

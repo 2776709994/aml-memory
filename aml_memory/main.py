@@ -59,7 +59,9 @@ class AddRequest(BaseModel):
 class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    query: str = ""
+    # Required, but an empty string is tolerated: a missing field is a client bug
+    # (4xx, never retried) while an empty query is a legitimate empty answer.
+    query: str
     options: Any = None
     user_id: str = ""
     top_k: Any = 100

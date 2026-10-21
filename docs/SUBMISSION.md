@@ -31,6 +31,9 @@ that commit** (the rules freeze the code version for the duration of a Full run)
   volume is measured end to end rather than by recall alone.
 * `tests/` — 36 offline tests covering the API contract, the text pipeline, crash
   safety and assembly behaviour.
+* `scripts/verify_endpoint.py` — 15-check contract probe to run against the deployed
+  URL before registering it (health without auth, 401s, write-then-search, replay,
+  `top_k` clamping, empty result for an unknown user, 4xx on malformed input).
 * `scripts/loadtest.py` — concurrent ingest/search/retry-storm checker.
 
 ## Order of operations after the endpoint is live
