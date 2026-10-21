@@ -218,21 +218,26 @@ reachable from here, so the local runs use `qwen-flash` to answer and `qwen-max`
 judge. The absolute numbers are therefore **not** leaderboard scores — only the
 differences between configurations mean anything.
 
-| configuration | multi-hop (213) | open-domain (68) | both (281) | prompt tokens |
-|---|---|---|---|---|
-| single-turn items, widening off | .394 | .471 | .413 | 1.42 M |
-| **two-tier widening (shipped)** | **.446** | **.500** | **.459** | 3.10 M |
+| configuration | overall (1,382) | single-hop | temporal | multi-hop | open-domain | tokens/query |
+|---|---|---|---|---|---|---|
+| single-turn items, widening off | .640 | .759 | .528 | .394 | .485 | 5.3 k |
+| **two-tier widening (shipped)** | **.675** | **.808** | .512 | **.465** | .485 | 11.2 k |
 
-The widening gain survives the reader (+4.6 points on the hard slices) at ~8 tokens of
-context per token of question, well inside the 117,760-token answer budget. Cropping the
-list to 30 items instead of 82 was neutral (.588 vs .579 overall on a 240-question
-sample), which is why the default keeps the wider list: with that much budget left,
-coverage is free.
+Scored over the whole suite, not a sample, and compared question by question:
++140 questions won against 91 lost, i.e. **+3.5 points overall** (McNemar χ² = 9.97,
+p ≈ 0.002) — +4.9 on single-hop (p < 0.001), +7.0 on multi-hop (p ≈ 0.03), and −1.7 on
+temporal (not significant: widening a temporal answer's item also brings in the
+neighbouring turns' own dates). The cost is 2.1× prompt tokens per question, still only
+~11 k of the 117,760-token answer budget. Cropping the list to 30 items instead of 82
+was neutral overall, and a dedupe threshold of .85 vs .70 changes retrieval not at all,
+so neither is a lever; the context volume is. Widening *every* rank by 2 instead of only
+the top 30 is also a wash (.673 vs .675) for 24 % more tokens, so the two-tier split
+stays: the cheap radius-1 window is enough to keep the tail's recall.
 
 Failure analysis over 101 wrong verdicts (33 multi-hop, 29 open-domain, 26 temporal,
 13 single-hop) says the dominant multi-hop failure is **over-answering a list**, not
 missing evidence: gold `Figurines, shoes` → `a necklace, a pair of pink sneakers, and
-figurines` is WRONG under the judge's "no extra items" rule. Single-hop (.78) sits near
+figurines` is WRONG under the judge's "no extra items" rule. Single-hop (.81) sits near
 the reader's ceiling.
 
 ### A second suite (LongMemEval oracle)

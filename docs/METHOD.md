@@ -140,15 +140,17 @@ not reachable from the development environment, so the local runs use `qwen-flas
 answer and `qwen-max` to judge. **The absolute accuracies are not leaderboard scores** —
 only differences between configurations are meaningful.
 
-| configuration | multi-hop (n=213) | open-domain (n=68) | both (n=281) | prompt tokens |
-|---|---|---|---|---|
-| single-turn items (widening off) | .394 | .471 | .413 | 1.42 M |
-| two-tier widening (shipped) | .446 | .500 | .459 | 3.10 M |
+| configuration | overall (n=1,382) | single-hop | temporal | multi-hop | open-domain | tokens/query |
+|---|---|---|---|---|---|---|
+| single-turn items (widening off) | .640 | .759 | .528 | .394 | .485 | 5.3 k |
+| two-tier widening (shipped) | **.675** | **.808** | .512 | **.465** | .485 | 11.2 k |
 
-The widening gain therefore survives the reader, and the shipped configuration spends
-~8 tokens of context per token of question against a 117,760-token answer budget.
-Cropping to 30 items instead of 82 was neutral (.588 vs .579 on a 240-question
-sample), which is why coverage is not traded away for brevity.
+Paired over the whole suite: 140 questions won against 91 lost, **+3.5 points overall**
+(McNemar χ² = 9.97, p ≈ 0.002); +4.9 single-hop (p < 0.001), +7.0 multi-hop (p ≈ 0.03),
+−1.7 temporal (n.s.). The shipped configuration therefore spends 2.1× the prompt tokens
+per question, ~11 k of the 117,760-token answer budget. Cropping to 30 items instead of
+82 was neutral overall, and a dedupe threshold of .85 vs .70 does not change retrieval
+at all, so neither is a lever.
 
 ### Second suite
 
