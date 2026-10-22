@@ -9,7 +9,7 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Track | **Textual Memory** |
 | Division | **Open-source Methods** (prize-eligible) |
 | Public repository | <https://github.com/2776709994/aml-memory> |
-| Pinned commit | tag **`v1.2`** — resolve with `git rev-parse v1.2^{commit}` (a tag, so the hash stays valid however many doc commits follow) |
+| Pinned commit | tag **`v1.2`** — resolve with `git rev-parse v1.2^{commit}` (a tag, so the hash stays valid however many doc commits follow). The live instance runs commit `bd17385`, whose `aml_memory/` tree is identical to this tag; later commits touch only deployment scripts and docs |
 | License | MIT |
 | Add URL | `https://memory.thesamael.dpdns.org/add` |
 | Search URL | `https://memory.thesamael.dpdns.org/search` |
