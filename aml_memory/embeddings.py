@@ -199,7 +199,11 @@ class Embedder:
     def _get_client(self) -> httpx.Client:
         with self._client_lock:
             if self._client is None:
-                self._client = httpx.Client(timeout=180.0, limits=httpx.Limits(max_connections=32))
+                # AML_REQUEST_TIMEOUT_S is the operator's ceiling on one outbound
+                # call; 180 s is the working value (a batch of 10 texts never takes
+                # that long, a dead endpoint must not hang an Add for 30 minutes).
+                limit = float(max(5, min(180, self.settings.request_timeout_s)))
+                self._client = httpx.Client(timeout=limit, limits=httpx.Limits(max_connections=32))
             return self._client
 
     def _http_embed_compatible(self, texts: list[str], text_type: str) -> list[np.ndarray | None]:

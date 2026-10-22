@@ -294,9 +294,20 @@ python -m pytest tests -q
 
 ## 6. Deploy
 
-See **[DEPLOY.md](DEPLOY.md)** for the end-to-end runbook: a small VPS, Docker
-Compose, Caddy with automatic HTTPS, and the exact URLs and credential to register
-on the leaderboard.
+One command on a fresh Linux box (installs Docker, fetches the pinned tag, writes a
+`.env` with a generated token, starts the stack, waits for HTTPS, runs the contract
+self-check, prints the values to register):
+
+```bash
+sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-... \
+     bash <(curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+```
+
+It is idempotent — re-running never regenerates the token and never touches the data
+volume. For a hand-held walkthrough see **[DEPLOY.md](DEPLOY.md)**; to hand the job to
+an autonomous operator agent on the server, give it
+**[deploy/AGENT_DEPLOY.md](deploy/AGENT_DEPLOY.md)** (inputs, expected output, failure
+matrix, forbidden actions, report template).
 
 ---
 
@@ -315,6 +326,7 @@ The ones that actually change behaviour:
 | `AML_DENSE_WEIGHT` / `AML_BM25_WEIGHT` | 1.0 / 1.0 | channel weights in the fusion |
 | `RERANK_PROVIDER` | `none` | `none` \| `dashscope` \| `local` |
 | `RERANK_DEPTH` | 60 | how many fused candidates get reranked |
+| `RERANK_TIMEOUT_S` | 12 | abandon a slow rerank and keep fusion order (measured tail: one provider call took 21 s under 40-way load) |
 | `AML_QUERY_LLM` / `AML_INGEST_LLM` | off / off | any generative model must be `gpt-4o-mini`; both are off so nothing else is ever called |
 | `AML_EXPAND_NEIGHBORS` | 1 | ±1 turn of context around each hit, as separate items |
 | `AML_CONTEXT_RADIUS` | 2 | ≥1 packs each top hit *with* its neighbours into one item (see §3) |
@@ -355,9 +367,14 @@ aml-memory/
 │  └─ diagnose.py         # why did this question miss?
 ├─ scripts/
 │  ├─ verify_endpoint.py  # 15-check contract probe for a deployed endpoint
-│  └─ loadtest.py         # concurrent ingest / search / retry-storm check
-├─ tests/                 # contract, text-processing and durability tests
-├─ deploy/                # docker-compose + Caddyfile
+│  ├─ loadtest.py         # concurrent ingest / search / retry-storm check
+│  └─ audit_consistency.py# config ↔ .env.example ↔ docs ↔ run artefacts
+├─ tests/                 # contract, text-processing, durability, hardening tests
+├─ deploy/
+│  ├─ docker-compose.yml  # service + Caddy (TLS, 1900 s timeouts)
+│  ├─ Caddyfile
+│  ├─ bootstrap.sh        # idempotent one-command deployment
+│  └─ AGENT_DEPLOY.md     # the runbook handed to an operator agent
 └─ Dockerfile
 ```
 
@@ -371,5 +388,6 @@ aml-memory/
 * BM25 and the dense index are rebuilt per user in memory on first touch after a
   write; that is deliberate (a user's memory fits comfortably) but would need an
   incremental index for corpora far beyond ~10⁵ turns.
-* The reranker adds ~0.35 s per query; it is off by default and enabled per
-  deployment.
+* The reranker is off in `config.py`'s default and enabled per deployment
+  (`RERANK_PROVIDER=dashscope`); the hosted one costs ~0.14 s per query. Turning it
+  off costs ~0.17 R@1, so a deployment without it is legal but weaker.

@@ -31,12 +31,29 @@ from .rerank import Reranker
 from .retrieve import Retriever
 from .store import Store
 
-VERSION = "0.1.0"
+VERSION = "1.2.0"
 LOG = logging.getLogger("aml")
 logging.basicConfig(
     level=os.environ.get("AML_LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
+
+# Every endpoint here is `def`, i.e. FastAPI runs it in the anyio worker pool, and
+# the ingest/search gates block a worker while they wait.  With the default limit
+# of 40 workers a burst of concurrent searches could hold every worker and leave
+# /health queued behind it ?the container healthcheck would then fail and Docker
+# would restart the service mid-run.  Two defences: a wider pool (below) and an
+# async /health that never touches the pool (see the health endpoint).
+def _widen_worker_pool(workers: int = 160) -> None:
+    """Raise the anyio thread limit.  Must run inside the event loop: the limiter
+    lives in a contextvar that does not exist yet at import time."""
+    try:
+        import anyio.to_thread
+
+        anyio.to_thread.current_default_thread_limiter().total_tokens = workers
+        LOG.info("worker pool widened to %d threads", workers)
+    except Exception:  # pragma: no cover - depends on anyio internals
+        LOG.warning("could not widen the worker pool; heavy load may stall /health")
 
 
 class AddMessage(BaseModel):
@@ -93,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        _widen_worker_pool()
         LOG.info(
             "aml-memory %s starting: add=%s search=%s health=%s embed=%s/%s dim=%s rerank=%s llm=%s",
             VERSION, settings.add_path, settings.search_path, settings.health_path,
@@ -144,11 +162,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return inflight.setdefault(request_id, threading.Lock())
 
     @app.get(_normalize_path(settings.health_path))
-    def health() -> dict[str, Any]:
+    async def health() -> dict[str, Any]:
+        # Async on purpose: it must answer even when every worker thread is busy
+        # inside a long Add, otherwise the container healthcheck restarts us.
         return {"status": "ok", "service": "aml-memory", "version": VERSION}
 
     @app.get("/")
-    def root() -> dict[str, Any]:
+    async def root() -> dict[str, Any]:
         return {
             "service": "aml-memory",
             "version": VERSION,
@@ -223,6 +243,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             top_k = int(req.top_k) if req.top_k is not None else settings.top_k_max
         except (TypeError, ValueError):
             top_k = settings.top_k_max
+        # Clamp before the slice: a negative top_k would otherwise trim the best
+        # items off the END of the list instead of asking for fewer.
+        top_k = max(0, min(top_k, settings.top_k_max))
 
         with search_gate:
             items = retriever.search(query=query, options=options, user_id=user_id, top_k=top_k)

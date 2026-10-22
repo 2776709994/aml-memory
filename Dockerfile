@@ -15,6 +15,10 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -i "$PIP_INDEX_URL" -r requirements.txt
 
 COPY aml_memory ./aml_memory
+# Operator tooling ships inside the image so the deployment self-check
+# (`docker compose exec aml-memory python scripts/verify_endpoint.py ...`) needs
+# nothing installed on the host.
+COPY scripts ./scripts
 
 RUN mkdir -p /data
 VOLUME ["/data"]

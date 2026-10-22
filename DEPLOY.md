@@ -8,6 +8,24 @@
 
 ---
 
+## 最快路径：一条命令
+
+如果你（或帮你干活的 Agent）只是想把服务跑起来，仓库里有幂等的一键脚本：
+
+```bash
+sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-你的key \
+     bash <(curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+```
+
+它会预检（root / 内存 / 磁盘 / DNS / 端口）、装 Docker、拉代码到 `/opt/aml-memory`、
+生成带随机 token 的 `.env`、构建并启动、等健康、在容器内跑 15 项契约自检、等 HTTPS 证书，
+最后打印要填进榜单的 URL 与 token。可重复执行（不会重建 token、不会动数据卷）。
+
+把这份作业单直接交给服务器上的 Agent：**[deploy/AGENT_DEPLOY.md](deploy/AGENT_DEPLOY.md)**。
+下面的 0–9 节是同一个流程的手工版，用于排障或想逐步确认时。
+
+---
+
 ## 0. 你需要准备什么
 
 | 东西 | 说明 |
@@ -84,10 +102,14 @@ RERANK_API_KEY=你的 DashScope key
 
 ```bash
 cd ~/aml-memory/deploy
-docker compose up -d --build
-docker compose ps          # 两个容器都应为 running / healthy
-docker compose logs -f aml-memory
+docker compose --env-file ../.env up -d --build
+docker compose --env-file ../.env ps          # 两个容器都应为 running / healthy
+docker compose --env-file ../.env logs -f aml-memory
 ```
+
+> `--env-file ../.env` 不能省：compose 的变量插值（`${AML_DOMAIN}`、`${AML_MEMORY_LIMIT}`）
+> 只读 compose 项目目录下的 `.env`，也就是 `deploy/.env`，而不是仓库根目录的 `../.env`。
+> 少了这个参数会直接报 `set AML_DOMAIN in .env to your public hostname`。
 
 首次启动约 1–2 分钟（装依赖 + 申请证书）。日志里出现
 `aml-memory 1.x starting: add=/add search=/search health=/health embed=openai/text-embedding-v4`
@@ -167,13 +189,13 @@ Full 期间服务版本会被冻结，别改代码、别升级依赖、别动 `.
   默认 60 s 超时的 Nginx。
 * **并发**：单进程 uvicorn + 线程池，`AML_MAX_CONCURRENT_SEARCH=16`、`_INGEST=8`。
   需要更高就调这两个值，或把机器升到 4 vCPU。
-* **日志**：`docker compose logs -f aml-memory`；已限制单文件 50 MB × 5。
+* **日志**：`docker compose --env-file ../.env logs -f aml-memory`；已限制单文件 50 MB × 5。
 * **健康检查**：Caddy 依赖 `service_healthy` 才启动，健康检查失败时不会对外提供服务，
   避免把 502 暴露给评测。
 * **规模**：本机压测（真 `text-embedding-v4`、6 并发）写入约 **800 轮/秒**、
   检索 p50 **63 ms / p95 81 ms**（1,800 轮、6 用户、8 路重试风暴均正常）。
   正式 Full 的数据量是亿级 token 级别，瓶颈在 embedding 接口的 QPS 而不在本服务：
-  看 `docker compose logs` 里 `add` 的耗时，或 `GET /admin/stats`（要带 token）里的
+  看 `docker compose --env-file ../.env logs` 里 `add` 的耗时，或 `GET /admin/stats`（要带 token）里的
   `units` / `add_requests` 增长是否停滞；需要更快就把 `EMBED_CONCURRENCY`
   （默认 6）和 `EMBED_BATCH`（默认 10）往上调，并同步调大
   `AML_MAX_CONCURRENT_INGEST`（默认 8）。
@@ -188,7 +210,7 @@ Full 期间服务版本会被冻结，别改代码、别升级依赖、别动 `.
 | `caddy` 反复重启，日志 `obtaining certificate: ...` | 域名没解析到本机，或 80 端口没放行。`dig +short memory.example.com` 确认 |
 | `dial tcp: lookup aml-memory` | compose 没起来，先在 `deploy/` 目录执行（不要在别的目录 `-f` 指来指去） |
 | `/search` 返回 401 | 平台给的 token 和你 `.env` 里的 `AML_API_KEY` 不一致；或误加了空格 |
-| 502 Bad Gateway | `aml-memory` 容器不健康：`docker compose logs aml-memory` 看 embedding key 是否写错 |
+| 502 Bad Gateway | `aml-memory` 容器不健康：`docker compose --env-file ../.env logs aml-memory` 看 embedding key 是否写错 |
 | embedding 报 400/401 | `EMBED_BASE_URL` 要保留 `/compatible-mode/v1` 结尾；key 与 base 要属于同一个 DashScope 账号 |
 | 写入很慢 | 每次 Add 最多 20 条消息，正常 < 3 s；若持续 30 s+ 看 `EMBED_CONCURRENCY` 和网络 |
 | 想换机器 | 备份 `aml-data` 卷 → 新机恢复 → 改 DNS → 重新起。**Full 期间不要换** |

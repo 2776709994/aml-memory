@@ -51,9 +51,10 @@ class Settings:
     max_concurrent_search: int = field(default_factory=lambda: _env_int("AML_MAX_CONCURRENT_SEARCH", 16))
     # How many per-user search indexes stay in RAM.  The row budget is the real
     # guard: a 100k-turn user at dim 1024 is ~410 MB of float32 matrix, so a
-    # count-only cap can exhaust a 2 GB container during a Full run.
+    # count-only cap can exhaust a 2 GB container during a Full run.  120k rows is
+    # ~470 MB of matrix, which leaves room on a 2 GB box; raise it on a big one.
     index_cache_count: int = field(default_factory=lambda: _env_int("AML_INDEX_CACHE_COUNT", 24))
-    index_cache_rows: int = field(default_factory=lambda: _env_int("AML_INDEX_CACHE_VECTORS", 400_000))
+    index_cache_rows: int = field(default_factory=lambda: _env_int("AML_INDEX_CACHE_VECTORS", 120_000))
     log_prompts: bool = field(default_factory=lambda: _env_bool("AML_LOG_PROMPTS", False))
 
     # --- embeddings (Academic track: text-embedding-v4) --------------------
@@ -92,6 +93,11 @@ class Settings:
     rerank_api_key: str = field(default_factory=lambda: _env("RERANK_API_KEY"))
     rerank_depth: int = field(default_factory=lambda: _env_int("RERANK_DEPTH", 60))
     rerank_batch: int = field(default_factory=lambda: _env_int("RERANK_BATCH", 16))
+    # A hosted reranker occasionally answers in ~20 s under load; past this budget
+    # the search keeps fusion order instead of making the caller wait (the fallback
+    # is already wired: Reranker.score returns None on timeout and _rerank passes
+    # the fused scores through).
+    rerank_timeout_s: int = field(default_factory=lambda: _env_int("RERANK_TIMEOUT_S", 12))
     max_content_chars: int = field(default_factory=lambda: _env_int("AML_MAX_CONTENT_CHARS", 700))
     total_char_budget: int = field(default_factory=lambda: _env_int("AML_TOTAL_CHAR_BUDGET", 120000))
     min_items: int = field(default_factory=lambda: _env_int("AML_MIN_ITEMS", 8))

@@ -52,7 +52,8 @@ class Reranker:
 
     def _http_scores(self, query: str, docs: Sequence[str]) -> list[float]:
         if self._client is None:
-            self._client = httpx.Client(timeout=60.0)
+            limit = float(max(3, min(60, self.settings.rerank_timeout_s)))
+            self._client = httpx.Client(timeout=limit)
         url = self.settings.rerank_base_url or (
             "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
         )

@@ -23,10 +23,12 @@ services:
       retries: 5
       start_period: 20s
     # Retrieval is CPU-light per user but ingest embeds text; keep the box honest.
+    # Default 2 GB matches the cheapest VPS; raise AML_MEMORY_LIMIT (e.g. 3g) on a
+    # 4 GB box so the kernel OOM killer cannot reach for something else instead.
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: ${AML_MEMORY_LIMIT:-2g}
     logging:
       driver: json-file
       options:

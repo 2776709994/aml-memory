@@ -115,6 +115,7 @@ class Store:
         self._cache_lock = threading.Lock()
         self._indexes: dict[str, UserIndex] = {}
         self._versions: dict[str, int] = {}
+        self._build_locks: dict[str, threading.Lock] = {}
         self._cache_indexes = cache_indexes
         # A user's matrix is len(units) x dim float32: 100k turns at dim 1024 is
         # 410 MB.  A count-only cache therefore cannot bound RSS, and a Full run
@@ -269,11 +270,22 @@ class Store:
             if cached is not None and cached.version == version:
                 cached.loaded_ns = time.time_ns()  # LRU is by use, not by build
                 return cached
-        index = self._build_index(user_id, version)
-        with self._cache_lock:
-            self._indexes[user_id] = index
-            self._evict_locked(keep=user_id)
-        return index
+            # One builder per user: a burst of concurrent searches on a cold cache
+            # would otherwise each run the same full scan and hold its own copy of
+            # the matrix (410 MB at 100k turns), which is how a box runs out of RAM.
+            build_lock = self._build_locks.setdefault(user_id, threading.Lock())
+        with build_lock:
+            with self._cache_lock:
+                cached = self._indexes.get(user_id)
+                version = self._versions.get(user_id, 0)
+                if cached is not None and cached.version == version:
+                    cached.loaded_ns = time.time_ns()
+                    return cached
+            index = self._build_index(user_id, version)
+            with self._cache_lock:
+                self._indexes[user_id] = index
+                self._evict_locked(keep=user_id)
+            return index
 
     def _evict_locked(self, keep: str) -> None:
         """Drop least-recently-used indexes until both budgets are satisfied.
