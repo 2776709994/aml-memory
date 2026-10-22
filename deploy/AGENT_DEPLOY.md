@@ -8,7 +8,7 @@
 ## 0. 一句话目标
 
 把 <https://github.com/2776709994/aml-memory> 的 `v1.2` 标签部署到本机，
-对外提供 **HTTPS** 的 `/add`、`/search`、`/health`，通过 13 项契约自检，然后**停下**等人类做榜单注册。
+对外提供 **HTTPS** 的 `/add`、`/search`、`/health`，通过 15 项契约自检，然后**停下**等人类做榜单注册。
 
 ---
 
@@ -63,7 +63,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/d
 bash <(curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh)
 ```
 
-> 校验拿到的是不是同一份脚本：`curl -fsSL <url> | wc -c` 应为 **11033** 字节，
+> 校验拿到的是不是同一份脚本：`curl -fsSL <url> | wc -c` 应为 **11833** 字节，
 > 且开头是 `#!/usr/bin/env bash`。文件不对（CDN 缓存到旧版本）就换下一条 URL，不要将就。
 
 如果连 `curl` 都不通，用下面两种方式之一，效果相同：
@@ -86,7 +86,7 @@ sudo AML_DOMAIN=... EMBED_API_KEY=... AML_SRC=/opt/aml-memory-src bash /opt/aml-
 4. 生成 `/opt/aml-memory/.env`（`AML_API_KEY` 用 `openssl rand` 生成，`chmod 600`）；**文件已存在时不会覆盖，token 保持不变**；
 5. `docker compose --env-file ../.env up -d --build`（aml-memory + caddy 两个容器）；
 6. 等容器 `healthy`（最多 5 分钟）；
-7. 在容器内跑 13 项契约自检；
+7. 在容器内跑 15 项契约自检；
 8. 等 `https://<域名>/health` 返回 200（首次签证书需要几秒到一分钟）；
 9. 打印部署报告（含要填进榜单的 URL 与 token）。
 
@@ -99,7 +99,7 @@ sudo AML_DOMAIN=... EMBED_API_KEY=... AML_SRC=/opt/aml-memory-src bash /opt/aml-
 ## 4. 判断成功（必须看到这三样）
 
 1. 脚本最后一行是 `Deployment complete.`；
-2. 自检段落里每一项都是 `PASS`，末尾类似 `13/13 checks passed`；
+2. 自检段落里每一项都是 `PASS`，末尾是 `all 15 checks passed`；
 3. 下面三条命令的结果与期望一致：
 
 ```bash
@@ -152,7 +152,7 @@ docker compose --env-file ../.env exec -T aml-memory \
 | `DNS: <域名> does not resolve` | A 记录没生效 | 等 5–30 分钟或让人类改 DNS；临时可 `SKIP_DNS_CHECK=1`（HTTPS 会失败，服务本身可用） |
 | `https://<域名>/health` 非 200，但容器 healthy | 证书没签下来 | `docker compose --env-file ../.env logs --tail 50 caddy`；常见原因：DNS 不指向本机、云厂商安全组没放 80、Let's Encrypt 限流（等 1 小时） |
 | `container did not reach 'healthy'` | 嵌入 key 无效 / 网络不通 / 磁盘满 | `docker compose --env-file ../.env logs --tail 80 aml-memory`，检查 `EMBED_API_KEY` 与出网 |
-| 构建卡在 `pip install` 或超时 | 无法访问镜像源 | 重跑（脚本默认清华源）；仍失败则 `docker compose --env-file ../.env build --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/` |
+| 构建卡在 `pip install` 或拉不到镜像 | 无法访问 Docker Hub / PyPI | 脚本**已经自动重试过一次**（换 daocloud 镜像 + 清华 pip 源）；两次都失败再手动：`docker compose --env-file ../.env build --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/`，或 `CADDY_IMAGE=docker.m.daocloud.io/library/caddy:2-alpine` 后重跑脚本 |
 | 自检某项 FAIL，例如 `add did not echo request_id` | 镜像版本不对 | `git -C /opt/aml-memory describe --tags` 必须是 `v1.2`；否则 `git fetch --tags && git checkout v1.2` 后重跑 |
 | 自检 `search latency p50` 超 2000 ms | 嵌入/重排接口慢或机器过载 | 看 `docker stats`；必要时在 `.env` 里把 `EMBED_CONCURRENCY` 降到 4 |
 | 容器被杀（OOM） | 内存 < 2 GB 或用户数据过大 | 加内存，或在 `.env` 里设 `AML_MEMORY_LIMIT=3g`（4 GB 机器）、`AML_INDEX_CACHE_VECTORS=60000` |
@@ -170,7 +170,7 @@ docker compose --env-file ../.env exec -T aml-memory \
 域名：<AML_DOMAIN>（解析 IP：<ip>，与实际是否一致：是）
 版本：aml-memory v1.2（commit <short>）
 容器：aml-memory <healthy|...>，aml-caddy <running|...>
-自检：13/13 PASS（或：第 N 项 FAIL，原文：...）
+自检：15/15 PASS（或：第 N 项 FAIL，原文：...）
 HTTPS：https://<域名>/health -> 200（或错误码）
 榜单要填的值：
   Add    https://<域名>/add

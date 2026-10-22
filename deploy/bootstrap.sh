@@ -171,8 +171,21 @@ ok "auth        bearer token is set (printed in the final report)"
 # ---------------------------------------------------------------------------
 say "Build and start"
 cd "$AML_DIR/deploy"
-docker compose --env-file ../.env up -d --build
-ok "stack up"
+# Docker Hub is unreachable from many mainland-China hosts, which turns a fresh
+# deployment into a silent 20-minute hang. Try plain, then retry once through a
+# registry mirror for both images.
+if docker compose --env-file ../.env up -d --build; then
+  ok "stack up"
+else
+  warn "first attempt failed — retrying with registry mirrors (daocloud)"
+  export BASE_IMAGE="docker.m.daocloud.io/library/python:3.12-slim"
+  export CADDY_IMAGE="docker.m.daocloud.io/library/caddy:2-alpine"
+  docker compose --env-file ../.env build --build-arg BASE_IMAGE="$BASE_IMAGE" \
+    || die "image build failed even through the mirror — outbound network to pip/registry is the usual cause"
+  docker compose --env-file ../.env up -d \
+    || die "stack did not start — inspect: docker compose --env-file ../.env logs --tail 80"
+  ok "stack up (through registry mirrors)"
+fi
 
 say "Waiting for the service to become healthy"
 status=""
@@ -185,7 +198,7 @@ done
 ok "health      healthy"
 
 # ---------------------------------------------------------------------------
-say "Contract self-check (runs inside the container, 13 checks)"
+say "Contract self-check (runs inside the container, 15 checks)"
 if [ "$SKIP_VERIFY" = "1" ]; then
   warn "skipped on request"
 else

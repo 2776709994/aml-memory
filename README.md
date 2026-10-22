@@ -305,7 +305,7 @@ sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-... bash <(curl -fsSL \
 
 (If GitHub is reachable directly, swap in `https://raw.githubusercontent.com/...v1.2/...`;
 the CDN mirror is `https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh`.
-The script is 11 033 bytes — check with `curl -fsSL <url> | wc -c` if a CDN ever lags.)
+The script is 11 833 bytes — check with `curl -fsSL <url> | wc -c` if a CDN ever lags.)
 
 It is idempotent — re-running never regenerates the token and never touches the data
 volume. For a hand-held walkthrough see **[DEPLOY.md](DEPLOY.md)**; to hand the job to

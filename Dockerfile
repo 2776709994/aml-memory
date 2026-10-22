@@ -1,4 +1,7 @@
-FROM python:3.12-slim
+# Base image override exists because Docker Hub is frequently unreachable from
+# mainland China; the deployment script retries with a mirror automatically.
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

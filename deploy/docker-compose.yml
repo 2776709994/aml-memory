@@ -36,7 +36,7 @@ services:
         max-file: "5"
 
   caddy:
-    image: caddy:2-alpine
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
     container_name: aml-caddy
     restart: unless-stopped
     depends_on:
