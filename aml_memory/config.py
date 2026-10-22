@@ -58,6 +58,7 @@ class Settings:
     # ~470 MB of matrix, which leaves room on a 2 GB box; raise it on a big one.
     index_cache_count: int = field(default_factory=lambda: _env_int("AML_INDEX_CACHE_COUNT", 24))
     index_cache_rows: int = field(default_factory=lambda: _env_int("AML_INDEX_CACHE_VECTORS", 120_000))
+    embed_cache_rows: int = field(default_factory=lambda: _env_int("EMBED_CACHE_ROWS", 1_000_000))
     log_prompts: bool = field(default_factory=lambda: _env_bool("AML_LOG_PROMPTS", False))
 
     # --- embeddings (Academic track: text-embedding-v4) --------------------

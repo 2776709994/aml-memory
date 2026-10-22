@@ -107,6 +107,7 @@ class Store:
         embed_model: str = "",
         cache_indexes: int = 24,
         cache_rows: int = 400_000,
+        embed_cache_rows: int = 1_000_000,
     ):
         self.db_path = str(db_path)
         self.embed_model = embed_model
@@ -123,6 +124,11 @@ class Store:
         # (400k rows ~ 1.6 GB worst case, and the eviction loop keeps the most
         # recently used users).
         self._cache_rows = cache_rows
+        # Disk budget for the persistent embedding cache, in rows (0 = unlimited).
+        # One row is dim x 2 bytes, so 1M rows at dim 1024 is ~2 GB; a Full run
+        # over millions of turns would otherwise grow this table without bound.
+        self._embed_cache_rows = embed_cache_rows
+        self._cache_writes = 0
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(SCHEMA)
@@ -245,6 +251,29 @@ class Store:
                 [(h, model, int(v.shape[0]), _vec_to_blob(v)) for h, v in items],
             )
             conn.commit()
+            self._cache_writes += len(items)
+            if self._embed_cache_rows and self._cache_writes >= 2000:
+                # A cache is not worth a full disk: a long Full run writes one row
+                # per embedded text (turn + query variant), which is the single
+                # largest table. Keep the newest rows and let the oldest go; a
+                # miss only costs one embedding call, and the vectors themselves
+                # live in `vectors` either way.
+                self._cache_writes = 0
+                self._prune_embed_cache(conn)
+
+    def _prune_embed_cache(self, conn: sqlite3.Connection) -> None:
+        limit = self._embed_cache_rows
+        if not limit:
+            return
+        count = conn.execute("SELECT COUNT(*) FROM embed_cache").fetchone()[0]
+        if count <= limit + limit // 10:
+            return
+        conn.execute(
+            "DELETE FROM embed_cache WHERE rowid IN ("
+            " SELECT rowid FROM embed_cache ORDER BY rowid DESC LIMIT -1 OFFSET ?)",
+            (limit,),
+        )
+        conn.commit()
 
     def load_cached_vectors(self, model: str, hashes: Sequence[str]) -> dict[str, np.ndarray]:
         if not hashes:
@@ -390,7 +419,23 @@ class Store:
         users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM units").fetchone()[0]
         reqs = conn.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
         vecs = conn.execute("SELECT COUNT(*) FROM vectors").fetchone()[0]
-        return {"units": units, "users": users, "add_requests": reqs, "vectors": vecs}
+        cached = conn.execute("SELECT COUNT(*) FROM embed_cache").fetchone()[0]
+        # The operator needs to see the growth of the file itself: the unit count
+        # alone does not reveal a runaway cache or a bloated WAL.
+        db_bytes = 0
+        for suffix in ("", "-wal"):
+            try:
+                db_bytes += Path(self.db_path + suffix).stat().st_size
+            except OSError:
+                pass
+        return {
+            "units": units,
+            "users": users,
+            "add_requests": reqs,
+            "vectors": vecs,
+            "embed_cache": cached,
+            "db_bytes": db_bytes,
+        }
 
 
 def _vec_to_blob(vec: np.ndarray) -> bytes:

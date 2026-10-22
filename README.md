@@ -373,6 +373,7 @@ The ones that actually change behaviour:
 | `AML_SCORE_FLOOR` | 0.0 | 0 keeps every candidate up to `top_k` |
 | `AML_INDEX_CACHE_COUNT` / `AML_INDEX_CACHE_VECTORS` | 24 / 120000 | per-user matrix cache, bounded by users **and** rows (~470 MB of matrix at 1024-d) |
 | `EMBED_CACHE_MB` / `EMBED_CACHE_SIZE` | 256 / 100000 | in-process embedding cache, float16, byte-bounded |
+| EMBED_CACHE_ROWS | 1000000 | cap on the persistent embedding cache table (~2 GB at dim 1024; oldest rows are dropped, 0 = unlimited) |
 | `AML_MAX_CONCURRENT_INGEST` / `_SEARCH` | 8 / 16 | thread gates |
 | `AML_ENV_FILE` | *(empty)* | pin the env file; otherwise `./.env`, then the `.env` beside the package |
 

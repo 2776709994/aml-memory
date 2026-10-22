@@ -40,4 +40,12 @@ if [ -n "$(env_get CF_TUNNEL_TOKEN)" ]; then
   fi
 fi
 
+# A full disk stops every write, so report it before it happens.  The database
+# grows with the number of turns ingested; if this line appears, look at
+# /admin/stats (db_bytes) and lower EMBED_CACHE_ROWS or move the data dir.
+FREE_MB="$(df -Pm "$AML_DIR" 2>/dev/null | awk 'NR==2 {print $4}')"
+if [ -n "${FREE_MB:-}" ] && [ "$FREE_MB" -lt 2048 ] 2>/dev/null; then
+  echo "$STAMP WARNING low disk: ${FREE_MB} MB free on the data volume"
+fi
+
 exit "$rc"

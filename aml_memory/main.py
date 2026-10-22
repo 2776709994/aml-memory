@@ -98,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         embed_model=settings.embed_model,
         cache_indexes=settings.index_cache_count,
         cache_rows=settings.index_cache_rows,
+        embed_cache_rows=settings.embed_cache_rows,
     )
     llm = LLM(settings)
     embedder = Embedder(settings, store)

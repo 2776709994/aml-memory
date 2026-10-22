@@ -124,3 +124,21 @@ def test_settings_find_a_dotenv_outside_the_working_directory(tmp_path, monkeypa
     monkeypatch.setenv("AML_DATA_DIR", str(tmp_path / "data"))
     settings, _ = _fresh_modules(tmp_path, monkeypatch, AML_ENV_FILE=str(env_file))
     assert settings.top_k_max == 42
+
+
+def test_embed_cache_is_capped_so_a_long_run_cannot_fill_the_disk(tmp_path, monkeypatch):
+    """One row per embedded text is the largest table in the database: a Full run
+    over millions of turns would grow it without bound. The cap keeps the newest
+    rows, and a miss costs exactly one embedding call."""
+    monkeypatch.setenv("AML_DATA_DIR", str(tmp_path / "cache"))
+    from aml_memory.store import Store
+
+    store = Store(tmp_path / "cache" / "aml.sqlite3", embed_model="hash", embed_cache_rows=100)
+    vec = np.ones(64, dtype=np.float32) / 8.0
+    store.cache_vectors("hash", [(f"h{i}", vec) for i in range(2500)])
+    with store._conn() as conn:  # noqa: SLF001 - asserting on internal state on purpose
+        count = conn.execute("SELECT COUNT(*) FROM embed_cache").fetchone()[0]
+    assert count <= 110, f"cache should have been pruned to ~100 rows, got {count}"
+    # the newest rows survive, so a retry of the last batch is still a hit
+    assert "h2499" in store.load_cached_vectors("hash", ["h2499"])
+    assert "h0" not in store.load_cached_vectors("hash", ["h0"])
