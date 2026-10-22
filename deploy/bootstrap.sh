@@ -54,6 +54,17 @@ case "$AML_DOMAIN" in
 esac
 ok "domain      $AML_DOMAIN"
 
+# Both values end up inside `sed` replacements and the .env file, so refuse anything
+# exotic up front instead of writing a corrupted line.
+case "$EMBED_API_KEY" in
+  *[!A-Za-z0-9._-]*) die "EMBED_API_KEY contains characters outside [A-Za-z0-9._-] — check for stray quotes or spaces" ;;
+esac
+if [ -n "${AML_TOKEN:-}" ]; then
+  case "$AML_TOKEN" in
+    *[!A-Za-z0-9._-]*) die "AML_TOKEN contains characters outside [A-Za-z0-9._-]" ;;
+  esac
+fi
+
 for tool in curl git openssl; do
   command -v "$tool" >/dev/null 2>&1 || die "missing required tool: $tool (apt-get install -y $tool)"
 done

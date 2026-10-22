@@ -49,13 +49,33 @@ command -v docker && docker --version; command -v git; command -v openssl
 ```bash
 sudo AML_DOMAIN=mem.example.com \
      EMBED_API_KEY=sk-你的key \
-     bash <(curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+     bash <(curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh)
 ```
 
-如果 GitHub 直连不通（`curl` 超时），用下面两种方式之一，效果相同：
+如果 GitHub 直连不通（国内机器常见），下面三条都是同一个文件，任选一条可用即可：
 
 ```bash
-# A. 先克隆仓库，再从本地文件执行
+# 官方 raw（最快，但部分网络被墙）
+bash <(curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+
+# jsDelivr CDN（国内一般可达）
+bash <(curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh)
+
+# ghfast 反代
+bash <(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+```
+
+完整参数形式（推荐，出错时输出更清楚）：
+
+```bash
+sudo AML_DOMAIN=mem.example.com EMBED_API_KEY=sk-你的key \
+     bash <(curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh)
+```
+
+如果连 `curl` 都不通，用下面两种方式之一，效果相同：
+
+```bash
+# A. 先克隆仓库，再从本地文件执行（clone 慢可加 ghfast：https://ghfast.top/https://github.com/...）
 git clone https://github.com/2776709994/aml-memory.git /opt/aml-memory-src
 sudo AML_DOMAIN=... EMBED_API_KEY=... bash /opt/aml-memory-src/deploy/bootstrap.sh
 
