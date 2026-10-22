@@ -47,23 +47,24 @@ command -v docker && docker --version; command -v git; command -v openssl
 ## 3. 执行部署（一条命令，可重复执行）
 
 ```bash
-# 主路径：ghfast 反代（国内可直连，内容与官方 raw 同步）
-sudo AML_DOMAIN=mem.example.com \
-     EMBED_API_KEY=sk-你的key \
-     bash <(curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+# 主路径：ghfast 反代下载脚本（国内可直连，内容与官方 raw 同步）
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh \
+  -o /tmp/aml-bootstrap.sh
+wc -c /tmp/aml-bootstrap.sh        # 应为 11833
+sudo AML_DOMAIN=mem.example.com EMBED_API_KEY=sk-你的key bash /tmp/aml-bootstrap.sh
 ```
 
-下面几条是同一个文件，哪条能通就用哪条：
+「下载再执行」比 `curl | bash` 稳：中断可重试，脚本内容也能先看一眼。下面两条是同一个文件的其它来源，
 
 ```bash
 # 官方 raw（海外网络最快；国内常被墙）
-bash <(curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh -o /tmp/aml-bootstrap.sh
 
-# jsDelivr CDN（国内一般可达）
-bash <(curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh)
+# jsDelivr CDN（国内一般可达；按标签缓存，可能是旧版本，务必看字节数）
+curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh -o /tmp/aml-bootstrap.sh
 ```
 
-> 校验拿到的是不是同一份脚本：`curl -fsSL <url> | wc -c` 应为 **11833** 字节，
+> 校验拿到的是不是同一份脚本：`wc -c /tmp/aml-bootstrap.sh` 应为 **11833** 字节，
 > 且开头是 `#!/usr/bin/env bash`。文件不对（CDN 缓存到旧版本）就换下一条 URL，不要将就。
 
 如果连 `curl` 都不通，用下面两种方式之一，效果相同：
