@@ -13,9 +13,12 @@
 如果你（或帮你干活的 Agent）只是想把服务跑起来，仓库里有幂等的一键脚本：
 
 ```bash
-sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-你的key \
-     bash <(curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-你的key bash <(curl -fsSL \
+  https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
 ```
+
+（海外机器可把 `https://ghfast.top/https://raw.githubusercontent.com/...` 换成
+`https://raw.githubusercontent.com/...`；CDN 镜像见 `deploy/AGENT_DEPLOY.md` 第 3 节。）
 
 它会预检（root / 内存 / 磁盘 / DNS / 端口）、装 Docker、拉代码到 `/opt/aml-memory`、
 生成带随机 token 的 `.env`、构建并启动、等健康、在容器内跑 15 项契约自检、等 HTTPS 证书，

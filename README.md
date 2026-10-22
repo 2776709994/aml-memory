@@ -299,9 +299,13 @@ One command on a fresh Linux box (installs Docker, fetches the pinned tag, write
 self-check, prints the values to register):
 
 ```bash
-sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-... \
-     bash <(curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
+sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-... bash <(curl -fsSL \
+  https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh)
 ```
+
+(If GitHub is reachable directly, swap in `https://raw.githubusercontent.com/...v1.2/...`;
+the CDN mirror is `https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh`.
+The script is 11 033 bytes — check with `curl -fsSL <url> | wc -c` if a CDN ever lags.)
 
 It is idempotent — re-running never regenerates the token and never touches the data
 volume. For a hand-held walkthrough see **[DEPLOY.md](DEPLOY.md)**; to hand the job to
