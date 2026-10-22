@@ -21,7 +21,7 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Method summary | Retrieval-only hybrid memory: per-turn records with speaker + absolute-date anchoring, dense cosine + BM25 fused by weighted RRF on ranks, hosted cross-encoder rerank, two-tier same-session context widening |
 | Full method disclosure | [`docs/METHOD.md`](METHOD.md) |
 | Measured on LoCoMo-Refined | retrieval R@1 .748 / R@10 .957 / MRR .827 at `top_k=100`, 134 ms/query; end-to-end with the official reader template on all 1 382 questions **.675** with context widening vs **.640** without (n.s.-free paired test, McNemar p ≈ 0.002) |
-| Deployment | one command: `deploy/bootstrap.sh` (idempotent; installs Docker, pins `v1.2`, generates the API token, runs the 15-check contract probe) — see `deploy/AGENT_DEPLOY.md` |
+| Deployment | one command, idempotent: `deploy/bootstrap.sh` (Docker + Caddy) or `deploy/bootstrap-noroot.sh` (no Docker, no root: private venv, supervised processes, Cloudflare Tunnel); both pin `v1.2`, generate the API token, wait for HTTPS and run the 15-check contract probe — runbooks in `deploy/AGENT_DEPLOY.md` / `deploy/AGENT_DEPLOY_NOROOT.md` |
 | Contact / team | *fill in* |
 
 ## Evidence attached to the repo

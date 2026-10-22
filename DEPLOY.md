@@ -24,6 +24,11 @@ sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-你的key bash <(curl -fsSL 
 生成带随机 token 的 `.env`、构建并启动、等健康、在容器内跑 15 项契约自检、等 HTTPS 证书，
 最后打印要填进榜单的 URL 与 token。可重复执行（不会重建 token、不会动数据卷）。
 
+> **没有 root 或没有 Docker 的机器**（比如共享的实验服务器）：这台机器用不了本文件里的
+> Docker + Caddy 方案，改用 `deploy/bootstrap-noroot.sh` + Cloudflare 命名隧道，跑法见
+> **[deploy/AGENT_DEPLOY_NOROOT.md](deploy/AGENT_DEPLOY_NOROOT.md)**。它用普通账号建私有
+> venv、托管进程，并用 cloudflared 把 `127.0.0.1:8000` 发布成公网 HTTPS，最后同样跑 15 项自检。
+
 把这份作业单直接交给服务器上的 Agent：**[deploy/AGENT_DEPLOY.md](deploy/AGENT_DEPLOY.md)**。
 下面的 0–9 节是同一个流程的手工版，用于排障或想逐步确认时。
 

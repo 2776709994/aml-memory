@@ -314,6 +314,27 @@ an autonomous operator agent on the server, give it
 **[deploy/AGENT_DEPLOY.md](deploy/AGENT_DEPLOY.md)** (inputs, expected output, failure
 matrix, forbidden actions, report template).
 
+### No Docker, no root: Cloudflare Tunnel
+
+If the host has neither `sudo` nor Docker (common on a shared lab box), the service still
+runs as an ordinary user on `127.0.0.1` and reaches the internet through a Cloudflare
+tunnel:
+
+```bash
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap-noroot.sh \
+  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 19454
+AML_DOMAIN=memory.example.com CF_TUNNEL_TOKEN=eyJ... EMBED_API_KEY=sk-... \
+  bash /tmp/aml-bootstrap-noroot.sh
+```
+
+It builds a private Python environment (three fallbacks, because `ensurepip` and
+`python3-venv` are often missing), installs the dependencies through the first reachable
+PyPI mirror, verifies the embedding key **before** doing any of it, generates `.env`,
+downloads `cloudflared`, supervises both processes (`deploy/service-noroot.sh
+start|stop|restart|status|logs|url`), and finishes with the same 15-check contract probe
+against the public HTTPS URL. Operator runbook:
+**[deploy/AGENT_DEPLOY_NOROOT.md](deploy/AGENT_DEPLOY_NOROOT.md)**.
+
 ---
 
 ## 7. Configuration
@@ -378,8 +399,11 @@ aml-memory/
 ├─ deploy/
 │  ├─ docker-compose.yml  # service + Caddy (TLS, 1900 s timeouts)
 │  ├─ Caddyfile
-│  ├─ bootstrap.sh        # idempotent one-command deployment
-│  └─ AGENT_DEPLOY.md     # the runbook handed to an operator agent
+│  ├─ bootstrap.sh        # idempotent one-command deployment (Docker + Caddy)
+│  ├─ AGENT_DEPLOY.md     # the runbook handed to an operator agent
+│  ├─ bootstrap-noroot.sh # same, without Docker or root (Cloudflare Tunnel)
+│  ├─ service-noroot.sh   # start/stop/restart/status/logs/url supervisor
+│  └─ AGENT_DEPLOY_NOROOT.md
 └─ Dockerfile
 ```
 
