@@ -322,7 +322,7 @@ tunnel:
 
 ```bash
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap-noroot.sh \
-  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 20422
+  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 21242
 AML_DOMAIN=memory.example.com CF_TUNNEL_TOKEN=eyJ... EMBED_API_KEY=sk-... \
   bash /tmp/aml-bootstrap-noroot.sh
 ```
@@ -335,7 +335,11 @@ the first `/add`), generates `.env` — reusing the embedding key for the rerank
 one DashScope key serves both and reranking is worth about +0.17 R@1 — downloads
 `cloudflared`, supervises both processes (`deploy/service-noroot.sh
 start|stop|restart|status|logs|url`), and finishes with the same 15-check contract probe
-against the public HTTPS URL. Operator runbook:
+against the public HTTPS URL. Re-running it is safe and now *merges* `.env`: an existing
+token is kept, while any key that is missing or blank (a hostname or tunnel token left
+over from a quick tunnel, for instance) is filled in. On a host with no cron, call
+`deploy/watchdog.sh` from whatever supervisor exists — it restarts the API and the tunnel
+only when they are actually down. Operator runbook:
 **[deploy/AGENT_DEPLOY_NOROOT.md](deploy/AGENT_DEPLOY_NOROOT.md)**.
 
 ---
@@ -407,6 +411,7 @@ aml-memory/
 │  ├─ AGENT_DEPLOY.md     # the runbook handed to an operator agent
 │  ├─ bootstrap-noroot.sh # same, without Docker or root (Cloudflare Tunnel)
 │  ├─ service-noroot.sh   # start/stop/restart/status/logs/url supervisor
+│  ├─ watchdog.sh         # health check + restart, for hosts with no cron
 │  └─ AGENT_DEPLOY_NOROOT.md
 └─ Dockerfile
 ```

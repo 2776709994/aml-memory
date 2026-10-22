@@ -265,20 +265,33 @@ ok "dependencies installed"
 # ---------------------------------------------------------------------------
 say "Configuration (.env)"
 ENV_FILE="$AML_DIR/.env"
-if [ -f "$ENV_FILE" ]; then
-  ok "keeping the existing $ENV_FILE (token and secrets unchanged)"
-else
-  [ -f "$AML_DIR/.env.example" ] || die ".env.example missing from the source tree"
-  AMLDOMAIN="$AML_DOMAIN" EMBEDKEY="$EMBED_API_KEY" EMBEDURL="$EMBED_BASE_URL" \
-  EMBPROV="$EMBED_PROVIDER" EMBMODEL="$EMBED_MODEL" EMBDIM="$EMBED_DIM" \
-  RRKEY="$RERANK_API_KEY" RRMODEL="$RERANK_MODEL" RRURL="$RERANK_BASE_URL" \
-  CFTOKEN="$CF_TUNNEL_TOKEN" ENVFILE="$ENV_FILE" SRCENV="$AML_DIR/.env.example" \
-  "$RUNTIME_PY" - <<'PY'
+[ -f "$AML_DIR/.env.example" ] || die ".env.example missing from the source tree"
+# Merge, do not overwrite: an existing .env keeps its token and secrets, but every
+# key that is missing or empty is filled in.  (A first run with a quick tunnel used
+# to leave AML_DOMAIN and CF_TUNNEL_TOKEN empty, and a re-run skipped the file
+# entirely — the service then came up with no hostname and no tunnel token.)
+AMLDOMAIN="$AML_DOMAIN" EMBEDKEY="$EMBED_API_KEY" EMBEDURL="$EMBED_BASE_URL" \
+EMBPROV="$EMBED_PROVIDER" EMBMODEL="$EMBED_MODEL" EMBDIM="$EMBED_DIM" \
+RRKEY="$RERANK_API_KEY" RRMODEL="$RERANK_MODEL" RRURL="$RERANK_BASE_URL" \
+CFTOKEN="$CF_TUNNEL_TOKEN" ENVFILE="$ENV_FILE" SRCENV="$AML_DIR/.env.example" \
+"$RUNTIME_PY" - <<'PY'
 import os, pathlib, secrets
 
-src = pathlib.Path(os.environ["SRCENV"]).read_text(encoding="utf-8").splitlines()
-over = {
-    "AML_API_KEY": "aml-" + secrets.token_hex(24),
+envfile = pathlib.Path(os.environ["ENVFILE"])
+fresh = not envfile.exists()
+base_text = envfile.read_text(encoding="utf-8") if not fresh else \
+    pathlib.Path(os.environ["SRCENV"]).read_text(encoding="utf-8")
+lines = base_text.splitlines()
+
+def current(key):
+    if fresh:  # .env.example values are placeholders, not decisions
+        return None
+    for line in lines:
+        if line.startswith(key + "=") and not line.lstrip().startswith("#"):
+            return line.split("=", 1)[1].strip()
+    return None
+
+wanted = {
     "AML_DOMAIN": os.environ.get("AMLDOMAIN", ""),
     "EMBED_PROVIDER": os.environ["EMBPROV"],
     "EMBED_MODEL": os.environ["EMBMODEL"],
@@ -289,37 +302,41 @@ over = {
 }
 rr = os.environ.get("RRKEY", "")
 if rr:
-    over.update({
+    wanted.update({
         "RERANK_PROVIDER": "dashscope",
         "RERANK_MODEL": os.environ["RRMODEL"],
         "RERANK_BASE_URL": os.environ["RRURL"],
         "RERANK_API_KEY": rr,
         "RERANK_DEPTH": "60",
     })
-else:
-    over["RERANK_PROVIDER"] = "none"
 cf = os.environ.get("CFTOKEN", "")
 if cf:
-    over["CF_TUNNEL_TOKEN"] = cf
+    wanted["CF_TUNNEL_TOKEN"] = cf
+
+# Only fill what is absent or blank; never rewrite a value the operator set.
+fill = {k: v for k, v in wanted.items() if v and not current(k)}
+if not current("AML_API_KEY"):
+    fill["AML_API_KEY"] = "aml-" + secrets.token_hex(24)
 
 out, seen = [], set()
-for line in src:
+for line in lines:
     key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
-    if key and key in over:
-        out.append(f"{key}={over[key]}")
+    if key in fill:
+        out.append(f"{key}={fill[key]}")
         seen.add(key)
     else:
         out.append(line)
-for key, val in over.items():
+for key, val in fill.items():
     if key not in seen:
         out.append(f"{key}={val}")
-
-pathlib.Path(os.environ["ENVFILE"]).write_text("\n".join(out) + "\n", encoding="utf-8")
-print("       token written to .env (chmod 600 next)")
+envfile.write_text("\n".join(out) + "\n", encoding="utf-8")
+if envfile.exists() and fill:
+    print("       filled in: " + ", ".join(sorted(fill)))
+elif not fill:
+    print("       nothing to change")
 PY
-  chmod 600 "$ENV_FILE"
-  ok "wrote $ENV_FILE with a generated AML_API_KEY"
-fi
+chmod 600 "$ENV_FILE"
+ok "configuration ready at $ENV_FILE"
 
 if [ "${USER_MODE:-0}" = "1" ]; then
   # The service must use the same interpreter the dependencies went into.

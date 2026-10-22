@@ -11,10 +11,10 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Public repository | <https://github.com/2776709994/aml-memory> |
 | Pinned commit | tag **`v1.2`** — resolve with `git rev-parse v1.2^{commit}` (a tag, so the hash stays valid however many doc commits follow) |
 | License | MIT |
-| Add URL | `https://<your-domain>/add` |
-| Search URL | `https://<your-domain>/search` |
-| Health URL (optional) | `https://<your-domain>/health` |
-| Auth | `Authorization: Bearer <AML_API_KEY you chose>` |
+| Add URL | `https://memory.thesamael.dpdns.org/add` |
+| Search URL | `https://memory.thesamael.dpdns.org/search` |
+| Health URL (optional) | `https://memory.thesamael.dpdns.org/health` |
+| Auth | `Authorization: Bearer <AML_API_KEY>` — the value of `AML_API_KEY` in the deployment's `.env` (`~/aml-memory/.env` on the server, never committed) |
 | Embedding model | `text-embedding-v4` (1024-dim, L2-normalised) |
 | Generative model inside add/search | **N/A — none is used** (rules permit only `gpt-4o-mini`; the service calls no LLM, query planning is rule-based) |
 | Reranker | `gte-rerank-v2` (hosted; rerankers are unrestricted) |
@@ -30,8 +30,8 @@ that commit** (the rules freeze the code version for the duration of a Full run)
   `docs/METHOD.md` §5 (replays a public suite through the real app), including
   `answer.py`, which renders the official answer prompt and judge so the context
   volume is measured end to end rather than by recall alone.
-* `tests/` — 36 offline tests covering the API contract, the text pipeline, crash
-  safety and assembly behaviour.
+* `tests/` — 43 offline tests covering the API contract, the text pipeline, crash
+  safety, assembly behaviour and the deployment hardening paths.
 * `scripts/verify_endpoint.py` — 15-check contract probe to run against the deployed
   URL before registering it (health without auth, 401s, write-then-search, replay,
   `top_k` clamping, empty result for an unknown user, 4xx on malformed input).
@@ -39,7 +39,13 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 
 ## Order of operations after the endpoint is live
 
-1. `GET https://<domain>/health` from outside — must answer 2xx **without** a token.
+The endpoint is live at `https://memory.thesamael.dpdns.org` (Cloudflare named tunnel →
+a sudo-less Linux host running the venv supervisor). Independently re-checked from
+outside the server: TLS valid (expires 2027-01-02), `GET /health` → 200 with no
+configuration in the body, `/add` and `/search` → 401 without a token.
+
+1. `GET https://memory.thesamael.dpdns.org/health` from outside — must answer 2xx
+   **without** a token. ✅ already verified
 2. Register the endpoint above, wait for the key (issued ~19:00 Beijing time the
    next working day).
 3. Run **Smoke** (≤ 30 per track, at least 1 hour apart). Read the report; fix

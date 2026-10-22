@@ -6,6 +6,8 @@
 # runtime data
 data/
 runs/
+run/
+logs/
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm

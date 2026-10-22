@@ -65,7 +65,7 @@ ss -ltn | grep -E ':(8000)\b' || echo "8000 空闲"
 # 1) 取脚本（国内可用 ghfast 反代；海外可直接用 raw）
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap-noroot.sh \
   -o /tmp/aml-bootstrap-noroot.sh
-wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 20422
+wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 21242
 
 # 2) 跑它（下面三个变量换成真实值）
 AML_DOMAIN=memory.example.com \
@@ -80,7 +80,7 @@ bash /tmp/aml-bootstrap-noroot.sh
 2. 取源码到 `$HOME/aml-memory`（v1.2 标签；已有则原地更新）；
 3. 建 Python 环境：优先用 3.10–3.12 建 venv，没有 ensurepip 就 `--without-pip` + get-pip，再不行退到用户级安装；
 4. 装依赖（依次试清华/阿里/中科大/PyPI 四个源，一个卡住或失败自动换下一个，并打印最终生效的源）；
-5. 生成 `$HOME/aml-memory/.env`：随机 `AML_API_KEY`（`chmod 600`）、嵌入 `text-embedding-v4`、重排 `gte-rerank-v2`（**默认复用同一个 key**；想关掉就传 `RERANK_API_KEY=` 并手工把 `RERANK_PROVIDER` 改成 `none`）；**文件已存在时保留，token 不会变**；
+5. 生成 `$HOME/aml-memory/.env`：随机 `AML_API_KEY`（`chmod 600`）、嵌入 `text-embedding-v4`、重排 `gte-rerank-v2`（**默认复用同一个 key**；想关掉就传 `RERANK_API_KEY=` 并手工把 `RERANK_PROVIDER` 改成 `none`）；**文件已存在时是"合并"而不是覆盖**：已有 token 和已填的值一律保留，只补空的和缺的键（早期用临时隧道跑过一次、留下 `AML_DOMAIN=` 和 `CF_TUNNEL_TOKEN=` 空值的机器，重跑一次就会自动补齐）；
 6. 下载 `cloudflared` 到 `$HOME/aml-memory/bin/`（ghfast 反代 + 官方地址两路重试）；
 7. 启动服务和隧道（都由看护循环托管，挂了 3–5 秒自动重起）；
 8. 等本机 `/health` 200 → 等 `https://<域名>/health` 200；
@@ -149,12 +149,14 @@ TOKEN=$(grep '^AML_API_KEY=' "$HOME/aml-memory/.env" | cut -d= -f2-)
 | `could not download cloudflared` | GitHub 不可达 | 手动下载 `cloudflared-linux-amd64` 到服务器，`CF_BIN=/path/to/cloudflared` 后重跑 |
 | `public health check failed for https://…` | 隧道或 Public Hostname 没配好；域名 NS 没生效 | `tail -f $HOME/aml-memory/logs/tunnel.log`；确认 Public Hostname 指向 `http://localhost:8000`；`dig +short 你的域名` |
 | 浏览器访问返回 **502** | cloudflared 在跑但服务没起 | `deploy/service-noroot.sh status`；`tail -50 logs/api.log`（常见：`EMBED_API_KEY` 无效导致启动即退出） |
+| 本地 `/health` 200，公网也 **502** | Public Hostname 的 Service Type 选成了 `HTTPS`，而服务是纯 HTTP | Cloudflare → 该隧道 → Public Hostname 里把 **Service Type 改成 `HTTP`**、URL 保持 `localhost:8000`，保存后立即生效（实测踩过） |
 | `no healthy answer on 127.0.0.1:8000` | 服务启动失败 | 同上；注意端口是否被占用（换 `AML_PORT`） |
 | 自检某项 FAIL | 版本不对或环境被改 | `git -C $HOME/aml-memory describe --tags` 必须是 `v1.2`；否则 `git fetch --tags && git checkout v1.2` 后重跑 |
 | `the embedding key was rejected (HTTP 401)` | 密钥失效/填错/已过期 | 到 Model Studio 控制台重新签发一个**长期** key（不要用临时 workspace key），`EMBED_API_KEY=sk-... bash /tmp/aml-bootstrap-noroot.sh` 重跑即可（`.env` 已存在时会保留 token，只改嵌入部分需手工 `sed` 或删 `.env` 重生成——注意删 `.env` 会换新 `AML_API_KEY`，榜单里也要同步改） |
 | `/add` 返回 500，日志里是 `embedding HTTP 401` | 部署完成之后 key 才失效（本方案唯一的强外部依赖） | 换新 key：`sed -i 's|^EMBED_API_KEY=.*|EMBED_API_KEY=sk-新key|' ~/aml-memory/.env && deploy/service-noroot.sh restart`；**Full 开始前务必确认 key 能长期使用**，跑到一半失效等于浪费一次机会 |
 | 服务被系统杀掉（OOM） | 内存不足 | `.env` 里设 `AML_INDEX_CACHE_VECTORS=30000`、`AML_CANDIDATE_DEPTH=300` 后 `deploy/service-noroot.sh restart`；或换更大内存的机器 |
-| 机器重启后服务没了 | 没有 systemd 单元 | 见附录 A 的 `crontab @reboot` |
+| 机器重启后服务没了 | 没有 systemd 单元 | 见附录 A：有 cron 就 `@reboot`，没有就让外层巡检每几分钟调一次 `deploy/watchdog.sh`（它只在真挂时动手） |
+| `.env` 里 `AML_DOMAIN=` / `CF_TUNNEL_TOKEN=` 是空的 | 早期用 `CF_QUICK=1` 跑过一次，旧版本脚本遇到已存在的 `.env` 会整份跳过 | 直接带着正确的 `AML_DOMAIN` 和 `CF_TUNNEL_TOKEN` 重跑脚本即可（新版是合并，只补空值、token 不变）；或手工 `sed` 填这两行后 `deploy/service-noroot.sh restart` |
 | `port 8000 already in use` | 端口冲突 | `AML_PORT=8010 …` 重跑，并同步改 Cloudflare 的 Public Hostname |
 
 ---
@@ -192,6 +194,9 @@ deploy/service-noroot.sh stop && tar czf "$HOME/aml-backup-$(date +%F).tgz" -C "
 
 # 开机自启（没有 systemd 权限时）
 ( crontab -l 2>/dev/null; echo "@reboot cd $HOME/aml-memory && START_TUNNEL=1 AML_PORT=8000 deploy/service-noroot.sh start" ) | crontab -
+
+# 没有 cron 也没有 systemd 时：让外层看护（你自己的巡检、heartbeat 之类）每次调这个
+deploy/watchdog.sh                   # 健康就不动手；API 挂了自动 restart，隧道掉了自动拉起；退出码 0=正常 1=仍然坏
 ```
 
 ## 附录 B：为什么这台机器要一直在线
