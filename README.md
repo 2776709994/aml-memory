@@ -322,15 +322,18 @@ tunnel:
 
 ```bash
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap-noroot.sh \
-  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 19454
+  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 20422
 AML_DOMAIN=memory.example.com CF_TUNNEL_TOKEN=eyJ... EMBED_API_KEY=sk-... \
   bash /tmp/aml-bootstrap-noroot.sh
 ```
 
 It builds a private Python environment (three fallbacks, because `ensurepip` and
 `python3-venv` are often missing), installs the dependencies through the first reachable
-PyPI mirror, verifies the embedding key **before** doing any of it, generates `.env`,
-downloads `cloudflared`, supervises both processes (`deploy/service-noroot.sh
+PyPI mirror, verifies the embedding key **and** the hosted reranker before spending any
+time on installs (a dead key dies in one second instead of surfacing as a bare `500` on
+the first `/add`), generates `.env` — reusing the embedding key for the reranker, since
+one DashScope key serves both and reranking is worth about +0.17 R@1 — downloads
+`cloudflared`, supervises both processes (`deploy/service-noroot.sh
 start|stop|restart|status|logs|url`), and finishes with the same 15-check contract probe
 against the public HTTPS URL. Operator runbook:
 **[deploy/AGENT_DEPLOY_NOROOT.md](deploy/AGENT_DEPLOY_NOROOT.md)**.

@@ -35,7 +35,10 @@ if [ -z "${EMBED_MODEL:-}" ]; then
   esac
 fi
 EMBED_DIM="${EMBED_DIM:-1024}"
-RERANK_API_KEY="${RERANK_API_KEY:-}"
+# The hosted reranker costs +0.17 R@1 in the measurements and the same DashScope
+# key serves both endpoints, so reusing the embedding key is the right default;
+# RERANK_PROVIDER=none is the explicit opt-out when no key is available.
+RERANK_API_KEY="${RERANK_API_KEY:-$EMBED_API_KEY}"
 RERANK_MODEL="${RERANK_MODEL:-gte-rerank-v2}"
 RERANK_BASE_URL="${RERANK_BASE_URL:-https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank}"
 AML_SRC="${AML_SRC:-}"
@@ -100,6 +103,19 @@ case "$EMBED_PROVIDER" in
     die "unknown EMBED_PROVIDER=$EMBED_PROVIDER (use openai, dashscope, hash or local)"
     ;;
 esac
+
+if [ -n "$RERANK_API_KEY" ]; then
+  rr_probe=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 \
+    -X POST "$RERANK_BASE_URL" \
+    -H "Authorization: Bearer $RERANK_API_KEY" -H 'content-type: application/json' \
+    -d "{\"model\":\"$RERANK_MODEL\",\"input\":{\"query\":\"ping\",\"documents\":[\"ping\",\"pong\"]}}" 2>/dev/null || echo 000)
+  case "$rr_probe" in
+    200) ok "reranker $RERANK_MODEL answered 200 (worth ~+0.17 R@1)" ;;
+    *)   warn "reranker probe returned HTTP $rr_probe — retrieval keeps working but falls back to fusion order; set RERANK_PROVIDER=none to silence this" ;;
+  esac
+else
+  warn "no rerank key: the service will fuse dense+BM25 and skip reranking (measured cost ~0.17 R@1)"
+fi
 
 if [ "$CF_QUICK" = "1" ]; then
   warn "CF_QUICK=1: the public hostname changes whenever the tunnel restarts — fine for a smoke test, unsafe for a multi-day Full run"

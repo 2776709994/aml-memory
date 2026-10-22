@@ -109,3 +109,18 @@ def test_health_is_async_so_a_busy_pool_cannot_starve_it(tmp_path, monkeypatch):
     assert endpoint is not None, "health route not registered"
     assert inspect.iscoroutinefunction(endpoint)
     assert asyncio.run(endpoint())["status"] == "ok"
+
+
+def test_settings_find_a_dotenv_outside_the_working_directory(tmp_path, monkeypatch):
+    """`uvicorn` started from $HOME used to silently drop every setting in `.env`:
+    the service came up with no reranker and no embedding key, and still answered
+    requests. `AML_ENV_FILE` pins the file; the package-adjacent `.env` is the
+    fallback when the working directory has none."""
+    env_file = tmp_path / "custom.env"
+    env_file.write_text("AML_TOP_K_MAX=42\nEMBED_PROVIDER=hash\n", encoding="utf-8")
+    monkeypatch.delenv("AML_SKIP_DOTENV", raising=False)
+    monkeypatch.delenv("AML_TOP_K_MAX", raising=False)
+    monkeypatch.setenv("AML_ENV_FILE", str(env_file))
+    monkeypatch.setenv("AML_DATA_DIR", str(tmp_path / "data"))
+    settings, _ = _fresh_modules(tmp_path, monkeypatch, AML_ENV_FILE=str(env_file))
+    assert settings.top_k_max == 42

@@ -39,6 +39,17 @@ PY="${AML_PYTHON:-}"
 
 alive() { [ -f "$1" ] && kill -0 "$(cat "$1" 2>/dev/null)" 2>/dev/null; }
 
+# uvicorn releases the socket only after its graceful shutdown, so "the pid is gone"
+# is not the same as "the port is free". Starting the next one too early yields
+# "address already in use" — or worse, the old process keeps answering requests with
+# the OLD .env while the new one fails to bind.
+port_busy() { ss -ltn 2>/dev/null | grep -qE "[:.]$PORT[[:space:]]"; }
+wait_port_free() {
+  local n="${1:-30}"
+  for _ in $(seq 1 "$n"); do port_busy || return 0; sleep 0.5; done
+  return 1
+}
+
 # --- supervisor loops (re-executed by start) --------------------------------
 __api_loop() {
   cd "$AML_DIR" || exit 1
@@ -86,6 +97,10 @@ __tunnel_named_loop() {
 start_api() {
   if alive "$API_PID"; then say "api      already running (pid $(cat "$API_PID"))"; return 0; fi
   [ -x "$PY" ] || die "no virtualenv at $AML_DIR/.venv — run deploy/bootstrap-noroot.sh first"
+  if port_busy; then
+    say "api      port $PORT is still held by a previous process, waiting for it to exit"
+    wait_port_free 30 || die "port $PORT never became free — find the process with: ss -ltnp | grep :$PORT"
+  fi
   : >"$API_PID"
   nohup setsid "$SELF" __api-loop >>"$LOG_DIR/supervisor.log" 2>&1 &
   printf '%s\n' "$!" >"$API_PID"
@@ -93,12 +108,19 @@ start_api() {
 }
 
 stop_api() {
-  alive "$API_PID" || { say "api      not running"; rm -f "$API_PID"; return 0; }
-  local pid; pid="$(cat "$API_PID")"
-  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
-  for _ in $(seq 1 20); do alive "$API_PID" || break; sleep 0.5; done
-  alive "$API_PID" && kill -KILL -- "-$pid" 2>/dev/null
-  rm -f "$API_PID"
+  alive "$API_PID" || { say "api      not running"; rm -f "$API_PID"; }
+  if [ -f "$API_PID" ]; then
+    local pid; pid="$(cat "$API_PID")"
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+    for _ in $(seq 1 20); do alive "$API_PID" || break; sleep 0.5; done
+    alive "$API_PID" && kill -KILL -- "-$pid" 2>/dev/null
+    rm -f "$API_PID"
+  fi
+  # Whatever happened to the supervisor, the port must end up free.
+  if ! wait_port_free 20; then
+    pkill -f "uvicorn aml_memory.main:app.*--port $PORT" 2>/dev/null || true
+    wait_port_free 20 || say "api      WARNING port $PORT is still busy (ss -ltnp | grep :$PORT)"
+  fi
   say "api      stopped"
 }
 

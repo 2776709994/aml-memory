@@ -1,9 +1,12 @@
 """Runtime configuration (env-driven, no secrets in code)."""
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger("aml.config")
 
 
 def _env(name: str, default: str = "") -> str:
@@ -137,14 +140,29 @@ class Settings:
 
 def load_settings() -> Settings:
     # Real environment variables win: `load_dotenv` never overrides what is already
-    # set, so the container (compose env_file / `docker run -e`) is authoritative and
-    # a local `uvicorn` run picks up `.env` from the working directory.
+    # set, so the container (compose env_file / `docker run -e`) is authoritative.
+    # Otherwise try, in order: $AML_ENV_FILE, the working directory (a local
+    # `uvicorn` run from the repo root), then `.env` beside the package — because
+    # starting uvicorn from $HOME used to silently drop every setting in `.env`
+    # (no reranker, no key) while the service still answered requests.
     # Tests set AML_SKIP_DOTENV=1 so a developer's real `.env` never leaks into them.
     if _env("AML_SKIP_DOTENV").lower() not in ("1", "true", "yes", "on"):
         try:
             from dotenv import find_dotenv, load_dotenv
 
-            load_dotenv(find_dotenv(usecwd=True), override=False)
+            candidates = [_env("AML_ENV_FILE") or None, find_dotenv(usecwd=True) or None,
+                          str(Path(__file__).resolve().parent.parent / ".env")]
+            loaded = None
+            for candidate in candidates:
+                if not candidate:
+                    continue
+                path = Path(candidate)
+                if path.is_file():
+                    load_dotenv(path, override=False)
+                    loaded = path
+                    break
+            if loaded is None:
+                logger.debug("no .env file found; using the process environment only")
         except Exception:  # python-dotenv is optional at runtime
             pass
     settings = Settings()

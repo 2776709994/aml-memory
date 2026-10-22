@@ -65,7 +65,7 @@ ss -ltn | grep -E ':(8000)\b' || echo "8000 空闲"
 # 1) 取脚本（国内可用 ghfast 反代；海外可直接用 raw）
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap-noroot.sh \
   -o /tmp/aml-bootstrap-noroot.sh
-wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 19454
+wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 20422
 
 # 2) 跑它（下面三个变量换成真实值）
 AML_DOMAIN=memory.example.com \
@@ -76,11 +76,11 @@ bash /tmp/aml-bootstrap-noroot.sh
 
 脚本按顺序做这些事（每一步都自带检查）：
 
-1. 预检：python3、curl/tar、内存、磁盘、端口、域名与 token 的字符合法性，**并且真的用 `EMBED_API_KEY` 打一次 `text-embedding-v4`**（401/403 立刻报错退出，不会让你白等十分钟）；
+1. 预检：python3、curl/tar、内存、磁盘、端口、域名与 token 的字符合法性，**并且真的用 `EMBED_API_KEY` 打一次 `text-embedding-v4`、用同一个 key 打一次 `gte-rerank-v2`**（嵌入 401/403 立刻报错退出，不会让你白等十分钟；重排失败只警告，检索会自动退回融合排序）；
 2. 取源码到 `$HOME/aml-memory`（v1.2 标签；已有则原地更新）；
 3. 建 Python 环境：优先用 3.10–3.12 建 venv，没有 ensurepip 就 `--without-pip` + get-pip，再不行退到用户级安装；
 4. 装依赖（依次试清华/阿里/中科大/PyPI 四个源，一个卡住或失败自动换下一个，并打印最终生效的源）；
-5. 生成 `$HOME/aml-memory/.env`：随机 `AML_API_KEY`（`chmod 600`）、嵌入模型 `text-embedding-v4`、重排（给了 `RERANK_API_KEY` 才启用）；**文件已存在时保留，token 不会变**；
+5. 生成 `$HOME/aml-memory/.env`：随机 `AML_API_KEY`（`chmod 600`）、嵌入 `text-embedding-v4`、重排 `gte-rerank-v2`（**默认复用同一个 key**；想关掉就传 `RERANK_API_KEY=` 并手工把 `RERANK_PROVIDER` 改成 `none`）；**文件已存在时保留，token 不会变**；
 6. 下载 `cloudflared` 到 `$HOME/aml-memory/bin/`（ghfast 反代 + 官方地址两路重试）；
 7. 启动服务和隧道（都由看护循环托管，挂了 3–5 秒自动重起）；
 8. 等本机 `/health` 200 → 等 `https://<域名>/health` 200；
