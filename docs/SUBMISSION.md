@@ -9,7 +9,7 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Track | **Textual Memory** |
 | Division | **Open-source Methods** (prize-eligible) |
 | Public repository | <https://github.com/2776709994/aml-memory> |
-| Pinned commit | tag **`v1.1`** — resolve with `git rev-parse v1.1^{commit}` (a tag, so the hash stays valid however many doc commits follow) |
+| Pinned commit | tag **`v1.2`** — resolve with `git rev-parse v1.2^{commit}` (a tag, so the hash stays valid however many doc commits follow) |
 | License | MIT |
 | Add URL | `https://<your-domain>/add` |
 | Search URL | `https://<your-domain>/search` |
@@ -20,7 +20,8 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Reranker | `gte-rerank-v2` (hosted; rerankers are unrestricted) |
 | Method summary | Retrieval-only hybrid memory: per-turn records with speaker + absolute-date anchoring, dense cosine + BM25 fused by weighted RRF on ranks, hosted cross-encoder rerank, two-tier same-session context widening |
 | Full method disclosure | [`docs/METHOD.md`](METHOD.md) |
-| Measured on LoCoMo-Refined | R@1 .748 / R@10 .957 / MRR .827 at `top_k=100`, 134 ms/query; end-to-end reader proxy on the 281 hard questions .459 with context widening vs .413 without |
+| Measured on LoCoMo-Refined | retrieval R@1 .748 / R@10 .957 / MRR .827 at `top_k=100`, 134 ms/query; end-to-end with the official reader template on all 1 382 questions **.675** with context widening vs **.640** without (n.s.-free paired test, McNemar p ≈ 0.002) |
+| Deployment | one command: `deploy/bootstrap.sh` (idempotent; installs Docker, pins `v1.2`, generates the API token, runs the 15-check contract probe) — see `deploy/AGENT_DEPLOY.md` |
 | Contact / team | *fill in* |
 
 ## Evidence attached to the repo
