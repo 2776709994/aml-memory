@@ -24,8 +24,15 @@ AML_PORT="${AML_PORT:-8000}"
 AML_DOMAIN="${AML_DOMAIN:-}"
 CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"
 CF_QUICK="${CF_QUICK:-0}"
+# Re-running to pick up a new tag should not mean re-typing secrets: fall back to
+# the values already in $AML_DIR/.env (a fresh install simply has none).
+env_existing() { [ -f "$AML_DIR/.env" ] && sed -n "s/^$1=//p" "$AML_DIR/.env" | head -1 || true; }
+[ -n "$AML_DOMAIN" ] || AML_DOMAIN="$(env_existing AML_DOMAIN)"
+[ -n "$CF_TUNNEL_TOKEN" ] || CF_TUNNEL_TOKEN="$(env_existing CF_TUNNEL_TOKEN)"
+EMBED_PROVIDER="${EMBED_PROVIDER:-$(env_existing EMBED_PROVIDER)}"
 EMBED_PROVIDER="${EMBED_PROVIDER:-openai}"
-EMBED_API_KEY="${EMBED_API_KEY:-}"
+EMBED_API_KEY="${EMBED_API_KEY:-$(env_existing EMBED_API_KEY)}"
+EMBED_BASE_URL="${EMBED_BASE_URL:-$(env_existing EMBED_BASE_URL)}"
 EMBED_BASE_URL="${EMBED_BASE_URL:-https://ws-i35enzeci2mcdfzq.cn-beijing.maas.aliyuncs.com/compatible-mode/v1}"
 if [ -z "${EMBED_MODEL:-}" ]; then
   case "$EMBED_PROVIDER" in

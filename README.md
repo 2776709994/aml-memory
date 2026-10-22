@@ -322,7 +322,7 @@ tunnel:
 
 ```bash
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap-noroot.sh \
-  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 21242
+  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 21802
 AML_DOMAIN=memory.example.com CF_TUNNEL_TOKEN=eyJ... EMBED_API_KEY=sk-... \
   bash /tmp/aml-bootstrap-noroot.sh
 ```

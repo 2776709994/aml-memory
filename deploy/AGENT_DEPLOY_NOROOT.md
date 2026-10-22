@@ -65,7 +65,7 @@ ss -ltn | grep -E ':(8000)\b' || echo "8000 空闲"
 # 1) 取脚本（国内可用 ghfast 反代；海外可直接用 raw）
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap-noroot.sh \
   -o /tmp/aml-bootstrap-noroot.sh
-wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 21242
+wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 21802
 
 # 2) 跑它（下面三个变量换成真实值）
 AML_DOMAIN=memory.example.com \
@@ -88,6 +88,15 @@ bash /tmp/aml-bootstrap-noroot.sh
 10. 打印要填进榜单的 URL 与 token。
 
 预计耗时：首次 3–8 分钟（依赖下载占大头）；重复执行 1–2 分钟。
+
+**已经部署过、只想升级到新代码**：`AML_DOMAIN` / `CF_TUNNEL_TOKEN` / `EMBED_API_KEY` 会从已有的
+`$AML_DIR/.env` 里自动读取，所以只要
+
+```bash
+bash /tmp/aml-bootstrap-noroot.sh
+```
+
+即可（`.env` 是合并、数据目录不动、服务自动重启；升级前建议先备份 `data/`，见附录 A）。
 
 可选参数：`AML_PORT`（默认 8000）、`AML_TAG`（默认 v1.2）、`AML_DIR`（默认 `$HOME/aml-memory`）、
 `AML_SRC`（离线从本地目录部署）、`PIP_INDEX_URL`、`PIP_SPEC`（默认锁定的 `requirements.txt`）、
