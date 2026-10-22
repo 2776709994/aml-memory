@@ -24,6 +24,13 @@ AML_PORT="${AML_PORT:-8000}"
 AML_DOMAIN="${AML_DOMAIN:-}"
 CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN:-}"
 CF_QUICK="${CF_QUICK:-0}"
+# Values the caller passed on the command line WIN over the ones already on disk,
+# so rotating a key is `EMBED_API_KEY=sk-new bash bootstrap-noroot.sh`; values
+# merely picked up from the existing .env never overwrite it.
+EXPLICIT_AML_DOMAIN="${AML_DOMAIN}"
+EXPLICIT_CF_TOKEN="${CF_TUNNEL_TOKEN}"
+EXPLICIT_EMBED_KEY="${EMBED_API_KEY:-}"
+EXPLICIT_RERANK_KEY="${RERANK_API_KEY:-}"
 # Re-running to pick up a new tag should not mean re-typing secrets: fall back to
 # the values already in $AML_DIR/.env (a fresh install simply has none).
 env_existing() { [ -f "$AML_DIR/.env" ] && sed -n "s/^$1=//p" "$AML_DIR/.env" | head -1 || true; }
@@ -48,6 +55,19 @@ EMBED_DIM="${EMBED_DIM:-1024}"
 RERANK_API_KEY="${RERANK_API_KEY:-$EMBED_API_KEY}"
 RERANK_MODEL="${RERANK_MODEL:-gte-rerank-v2}"
 RERANK_BASE_URL="${RERANK_BASE_URL:-https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank}"
+# Which of the values above came from the caller rather than from the file on disk.
+OVERRIDE_KEYS=""
+if [ -n "$EXPLICIT_AML_DOMAIN" ]; then OVERRIDE_KEYS="$OVERRIDE_KEYS,AML_DOMAIN"; fi
+if [ -n "$EXPLICIT_CF_TOKEN" ]; then OVERRIDE_KEYS="$OVERRIDE_KEYS,CF_TUNNEL_TOKEN"; fi
+if [ -n "$EXPLICIT_EMBED_KEY" ]; then
+  OVERRIDE_KEYS="$OVERRIDE_KEYS,EMBED_API_KEY"
+  # a rotated embedding key must not leave the reranker on the old one
+  if [ -z "$EXPLICIT_RERANK_KEY" ] && [ -n "$RERANK_API_KEY" ]; then
+    OVERRIDE_KEYS="$OVERRIDE_KEYS,RERANK_API_KEY"
+  fi
+fi
+if [ -n "$EXPLICIT_RERANK_KEY" ]; then OVERRIDE_KEYS="$OVERRIDE_KEYS,RERANK_API_KEY"; fi
+OVERRIDE_KEYS="${OVERRIDE_KEYS#,}"
 AML_SRC="${AML_SRC:-}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
@@ -281,6 +301,7 @@ AMLDOMAIN="$AML_DOMAIN" EMBEDKEY="$EMBED_API_KEY" EMBEDURL="$EMBED_BASE_URL" \
 EMBPROV="$EMBED_PROVIDER" EMBMODEL="$EMBED_MODEL" EMBDIM="$EMBED_DIM" \
 RRKEY="$RERANK_API_KEY" RRMODEL="$RERANK_MODEL" RRURL="$RERANK_BASE_URL" \
 CFTOKEN="$CF_TUNNEL_TOKEN" ENVFILE="$ENV_FILE" SRCENV="$AML_DIR/.env.example" \
+OVERRIDE="$OVERRIDE_KEYS" \
 "$RUNTIME_PY" - <<'PY'
 import os, pathlib, secrets
 
@@ -320,8 +341,10 @@ cf = os.environ.get("CFTOKEN", "")
 if cf:
     wanted["CF_TUNNEL_TOKEN"] = cf
 
-# Only fill what is absent or blank; never rewrite a value the operator set.
-fill = {k: v for k, v in wanted.items() if v and not current(k)}
+# Fill what is absent or blank, and overwrite what the caller passed explicitly
+# (that is how a key gets rotated); never rewrite a value the operator set earlier.
+override = {k.strip() for k in os.environ.get("OVERRIDE", "").split(",") if k.strip()}
+fill = {k: v for k, v in wanted.items() if v and (k in override or not current(k))}
 if not current("AML_API_KEY"):
     fill["AML_API_KEY"] = "aml-" + secrets.token_hex(24)
 

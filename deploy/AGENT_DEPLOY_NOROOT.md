@@ -65,7 +65,7 @@ ss -ltn | grep -E ':(8000)\b' || echo "8000 空闲"
 # 1) 取脚本（国内可用 ghfast 反代；海外可直接用 raw）
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap-noroot.sh \
   -o /tmp/aml-bootstrap-noroot.sh
-wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 21802
+wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 23084
 
 # 2) 跑它（下面三个变量换成真实值）
 AML_DOMAIN=memory.example.com \
@@ -206,7 +206,15 @@ deploy/service-noroot.sh stop && tar czf "$HOME/aml-backup-$(date +%F).tgz" -C "
 
 # 没有 cron 也没有 systemd 时：让外层看护（你自己的巡检、heartbeat 之类）每次调这个
 deploy/watchdog.sh                   # 健康就不动手；API 挂了自动 restart，隧道掉了自动拉起；退出码 0=正常 1=仍然坏
+
+# 换（轮换）嵌入/重排 key：显式传的值会覆盖 .env，其余配置与数据都不动
+EMBED_API_KEY=sk-新key bash /tmp/aml-bootstrap-noroot.sh
+# 若新 key 不是这个工作区（MaaS）的，还要同时指到官方地址：
+# EMBED_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 EMBED_API_KEY=sk-新key bash /tmp/aml-bootstrap-noroot.sh
 ```
+
+> 轮换 key 时脚本会先拿新 key 真打一次 `text-embedding-v4`（和一次 `gte-rerank-v2`），401 就当场停下，
+> 不会把线上打成 500；成功后自动重启服务，`AML_API_KEY`（平台用的 token）、域名、隧道 token 全部保留。
 
 ## 附录 B：为什么这台机器要一直在线
 
