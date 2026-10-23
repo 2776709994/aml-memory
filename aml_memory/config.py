@@ -58,7 +58,15 @@ class Settings:
     # ~470 MB of matrix, which leaves room on a 2 GB box; raise it on a big one.
     index_cache_count: int = field(default_factory=lambda: _env_int("AML_INDEX_CACHE_COUNT", 24))
     index_cache_rows: int = field(default_factory=lambda: _env_int("AML_INDEX_CACHE_VECTORS", 120_000))
-    embed_cache_rows: int = field(default_factory=lambda: _env_int("EMBED_CACHE_ROWS", 1_000_000))
+    # Vectors are stored as int8 (dim bytes/row), so 200k rows is ~200 MB and the
+    # cache only ever covers recent text; a miss just costs one embedding call.
+    embed_cache_rows: int = field(default_factory=lambda: _env_int("EMBED_CACHE_ROWS", 200_000))
+    # Document texts are embedded once and then live in `vectors`, so caching them
+    # again doubles the disk cost of every ingested turn for no benefit: a repeated
+    # Add is short-circuited by the request_id claim, not by the embed cache.
+    embed_cache_documents: bool = field(
+        default_factory=lambda: _env_bool("EMBED_CACHE_DOCS", False)
+    )
     log_prompts: bool = field(default_factory=lambda: _env_bool("AML_LOG_PROMPTS", False))
 
     # --- embeddings (Academic track: text-embedding-v4) --------------------

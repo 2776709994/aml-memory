@@ -55,6 +55,12 @@ input.
    after a restart, because the claim lives in SQLite. Retries that arrive while the
    first attempt is still running wait on a per-`request_id` lock and re-check the
    claim, so one Add is embedded once even under a retry storm.
+6. **Storage.** Units and their embeddings live in SQLite; embeddings are stored as
+   **int8 with a per-vector scale** (dim bytes instead of dim × 2) on 8 KiB pages, and
+   ingested texts are not duplicated into the embedding cache. Measured: 1.9 KB per
+   turn against 11.1 KB for the float16 build, with identical retrieval numbers
+   (R@1 .748 / R@10 .957 / MRR .827 on LoCoMo-Refined). `/admin/stats` reports
+   `db_bytes` and `embed_cache` rows so growth is visible while a run is in flight.
 
 ## 3. Read path (`POST /search`)
 

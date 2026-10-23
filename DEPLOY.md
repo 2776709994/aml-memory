@@ -210,6 +210,11 @@ Full 期间服务版本会被冻结，别改代码、别升级依赖、别动 `.
 * **内存**：索引缓存有硬上限（`AML_INDEX_CACHE_COUNT` / `AML_INDEX_CACHE_VECTORS`），
   embedding 缓存按字节封顶（`EMBED_CACHE_MB`，float16）。2 GB 机器跑评测数据量没问题；
   如果 `docker stats` 看到 RSS 逼近上限，先把这两个索引缓存值调小，不要动检索参数。
+* **磁盘**：向量按 int8 + 每行一个 scale 存（dim 字节/轮，不是 dim×2），8 KiB 页，
+  且写入的文本不再重复进 embedding 缓存 ⇒ 实测**每轮约 2 KB**（对比旧版 float16 的 11 KB），
+  100 万轮约 2 GB。持久 embedding 缓存另受 `EMBED_CACHE_ROWS`（默认 20 万行）限制。
+  跑 Full 期间用 `GET /admin/stats` 的 `db_bytes` 盯增长，`deploy/watchdog.sh` 会在
+  剩余空间 < 2 GB 时告警。
 
 ## 8. 常见问题
 

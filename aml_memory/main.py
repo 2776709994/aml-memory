@@ -31,7 +31,7 @@ from .rerank import Reranker
 from .retrieve import Retriever
 from .store import Store
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 LOG = logging.getLogger("aml")
 logging.basicConfig(
     level=os.environ.get("AML_LOG_LEVEL", "INFO").upper(),

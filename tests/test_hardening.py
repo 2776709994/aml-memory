@@ -142,3 +142,24 @@ def test_embed_cache_is_capped_so_a_long_run_cannot_fill_the_disk(tmp_path, monk
     # the newest rows survive, so a retry of the last batch is still a hit
     assert "h2499" in store.load_cached_vectors("hash", ["h2499"])
     assert "h0" not in store.load_cached_vectors("hash", ["h0"])
+
+
+def test_vectors_are_stored_as_int8_and_still_rank_correctly(tmp_path, monkeypatch):
+    """Storage cost per turn is dominated by the embedding: float16 at dim 1024 is
+    2 KB and a Full run touches millions of turns. int8 keeps dim bytes and loses
+    ~1e-3 of cosine, which must not change the ranking."""
+    from aml_memory import store as store_module
+
+    rng = np.random.default_rng(3)
+    vec = rng.normal(size=1024).astype(np.float32)
+    vec /= np.linalg.norm(vec)
+    blob, scale = store_module._vec_to_blob(vec)
+    assert len(blob) == 1024, f"int8 should be dim bytes, got {len(blob)}"
+    back = store_module._blob_to_vec(blob, 1024, scale)
+    cosine = float(back @ vec / (np.linalg.norm(back) * np.linalg.norm(vec)))
+    assert cosine > 0.9995, f"quantisation should be near lossless, cosine={cosine}"
+
+    # an old database stores float16 (2 bytes per dim); those must still load
+    legacy = vec.astype(np.float16).tobytes()
+    legacy_back = store_module._blob_to_vec(legacy, 1024, 1.0)
+    assert np.allclose(legacy_back, vec, atol=2e-3)

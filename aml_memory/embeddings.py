@@ -107,10 +107,12 @@ class Embedder:
                 out[i] = vec
                 self._remember(hashes[i], vec)
                 cache_rows.append((hashes[i], vec))
-            try:
-                self.store.cache_vectors(self.model, cache_rows)
-            except Exception:
-                pass
+            keep = text_type == "query" or self.settings.embed_cache_documents
+            if keep:
+                try:
+                    self.store.cache_vectors(self.model, cache_rows)
+                except Exception:
+                    pass
 
         dim = self.dim
         result = []

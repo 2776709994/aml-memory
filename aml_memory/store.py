@@ -53,14 +53,16 @@ CREATE TABLE IF NOT EXISTS vectors (
     unit_id     TEXT PRIMARY KEY,
     model       TEXT NOT NULL,
     dim         INTEGER NOT NULL,
-    vec         BLOB NOT NULL
+    vec         BLOB NOT NULL,
+    scale       REAL NOT NULL DEFAULT 1.0
 );
 
 CREATE TABLE IF NOT EXISTS embed_cache (
     hash        TEXT PRIMARY KEY,
     model       TEXT NOT NULL,
     dim         INTEGER NOT NULL,
-    vec         BLOB NOT NULL
+    vec         BLOB NOT NULL,
+    scale       REAL NOT NULL DEFAULT 1.0
 );
 """
 
@@ -132,6 +134,15 @@ class Store:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Add the int8 `scale` column to a database created by an older version."""
+        for table in ("vectors", "embed_cache"):
+            cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if "scale" not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN scale REAL NOT NULL DEFAULT 1.0")
+                conn.commit()
 
     # ---------------------------------------------------------------- plumbing
     def _conn(self) -> sqlite3.Connection:
@@ -139,6 +150,9 @@ class Store:
         if conn is None:
             conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
             conn.row_factory = sqlite3.Row
+            # 8 KiB pages hold seven int8 vectors instead of three, which cuts the
+            # page slack of the vectors table. Only a fresh database takes it.
+            conn.execute("PRAGMA page_size=8192")
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA busy_timeout=30000")
@@ -226,10 +240,11 @@ class Store:
                 for unit, vec in zip(units, vectors):
                     if vec is None:
                         continue
-                    payload.append((unit.id, model, int(vec.shape[0]), _vec_to_blob(vec)))
+                    blob, scale = _vec_to_blob(vec)
+                    payload.append((unit.id, model, int(vec.shape[0]), blob, scale))
                 if payload:
                     conn.executemany(
-                        "INSERT OR REPLACE INTO vectors(unit_id,model,dim,vec) VALUES (?,?,?,?)",
+                        "INSERT OR REPLACE INTO vectors(unit_id,model,dim,vec,scale) VALUES (?,?,?,?,?)",
                         payload,
                     )
                 conn.commit()
@@ -247,8 +262,8 @@ class Store:
         with self._write_lock:
             conn = self._conn()
             conn.executemany(
-                "INSERT OR REPLACE INTO embed_cache(hash,model,dim,vec) VALUES (?,?,?,?)",
-                [(h, model, int(v.shape[0]), _vec_to_blob(v)) for h, v in items],
+                "INSERT OR REPLACE INTO embed_cache(hash,model,dim,vec,scale) VALUES (?,?,?,?,?)",
+                [(h, model, int(v.shape[0]), *_vec_to_blob(v)) for h, v in items],
             )
             conn.commit()
             self._cache_writes += len(items)
@@ -284,11 +299,11 @@ class Store:
             chunk = list(hashes[start:start + 500])
             placeholders = ",".join("?" * len(chunk))
             rows = conn.execute(
-                f"SELECT hash, dim, vec FROM embed_cache WHERE model = ? AND hash IN ({placeholders})",
+                f"SELECT hash, dim, vec, scale FROM embed_cache WHERE model = ? AND hash IN ({placeholders})",
                 [model, *chunk],
             ).fetchall()
             for row in rows:
-                out[row["hash"]] = _blob_to_vec(row["vec"], row["dim"])
+                out[row["hash"]] = _blob_to_vec(row["vec"], row["dim"], row["scale"])
         return out
 
     # -------------------------------------------------------------------- index
@@ -369,12 +384,12 @@ class Store:
                 chunk = ids[start:start + 400]
                 placeholders = ",".join("?" * len(chunk))
                 vrows = conn.execute(
-                    f"SELECT unit_id,dim,vec FROM vectors WHERE unit_id IN ({placeholders})",
+                    f"SELECT unit_id,dim,vec,scale FROM vectors WHERE unit_id IN ({placeholders})",
                     chunk,
                 ).fetchall()
                 for vrow in vrows:
                     found_ids.append(vrow["unit_id"])
-                    vectors.append(_blob_to_vec(vrow["vec"], vrow["dim"]))
+                    vectors.append(_blob_to_vec(vrow["vec"], vrow["dim"], vrow["scale"]))
             if vectors:
                 dim = int(vectors[0].shape[0])
                 matrix = np.zeros((len(units), dim), dtype=np.float32)
@@ -438,12 +453,30 @@ class Store:
         }
 
 
-def _vec_to_blob(vec: np.ndarray) -> bytes:
-    return vec.astype(np.float16).tobytes()
+def _vec_to_blob(vec: np.ndarray) -> tuple[bytes, float]:
+    """Quantise a vector to int8 plus one scale so a stored turn costs dim bytes.
+
+    The chat embedding of a turn is stored once and read once per search; at
+    dim 1024 float16 costs 2 KB per turn and a Full run touches millions of
+    turns, so the vector table (and its page slack) is most of the database.
+    Per-vector symmetric int8 keeps ~0.4% of the magnitude range and loses about
+    1e-3 of cosine, which is far below the reranker's resolution.
+    """
+    arr = np.asarray(vec, dtype=np.float32)
+    peak = float(np.max(np.abs(arr))) if arr.size else 0.0
+    if not np.isfinite(peak) or peak <= 0.0:
+        return np.zeros(arr.shape[0], dtype=np.int8).tobytes(), 1.0
+    scale = peak / 127.0
+    quant = np.rint(arr / scale).clip(-127, 127).astype(np.int8)
+    return quant.tobytes(), scale
 
 
-def _blob_to_vec(blob: bytes, dim: int) -> np.ndarray:
-    arr = np.frombuffer(blob, dtype=np.float16).astype(np.float32)
+def _blob_to_vec(blob: bytes, dim: int, scale: float = 0.0) -> np.ndarray:
+    # Backwards compatible: an older database stores float16 at 2 bytes/dim.
+    dtype = np.int8 if len(blob) == dim else np.float16
+    arr = np.frombuffer(blob, dtype=dtype).astype(np.float32)
+    if dtype is np.int8 and scale:
+        arr = arr * np.float32(scale)
     if arr.shape[0] != dim:
         out = np.zeros(dim, dtype=np.float32)
         out[: min(dim, arr.shape[0])] = arr[: min(dim, arr.shape[0])]

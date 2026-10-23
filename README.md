@@ -25,7 +25,7 @@ Add   ──▶ parse messages ──▶ split into turns ──▶ anchor relat
                                                    │
                                           ┌────────┴────────┐
                                           ▼                 ▼
-                                    units (SQLite)     vectors (float16)
+                                    units (SQLite)     vectors (int8 + scale)
 
 Search ──▶ query analysis ──▶ query variants
                                  │
@@ -376,9 +376,36 @@ The ones that actually change behaviour:
 | `AML_SCORE_FLOOR` | 0.0 | 0 keeps every candidate up to `top_k` |
 | `AML_INDEX_CACHE_COUNT` / `AML_INDEX_CACHE_VECTORS` | 24 / 120000 | per-user matrix cache, bounded by users **and** rows (~470 MB of matrix at 1024-d) |
 | `EMBED_CACHE_MB` / `EMBED_CACHE_SIZE` | 256 / 100000 | in-process embedding cache, float16, byte-bounded |
-| EMBED_CACHE_ROWS | 1000000 | cap on the persistent embedding cache table (~2 GB at dim 1024; oldest rows are dropped, 0 = unlimited) |
+| EMBED_CACHE_ROWS | 200000 | cap on the persistent embedding cache table (~200 MB at dim 1024; oldest rows are dropped, 0 = unlimited) |
+| EMBED_CACHE_DOCS | 0 | cache ingested turn texts too; off because `vectors` already holds them |
 | `AML_MAX_CONCURRENT_INGEST` / `_SEARCH` | 8 / 16 | thread gates |
 | `AML_ENV_FILE` | *(empty)* | pin the env file; otherwise `./.env`, then the `.env` beside the package |
+
+### Footprint per turn
+
+A turn costs three things on disk: its text (~160–350 B for conversational data),
+its embedding, and (optionally) a row of the embedding cache. The embedding is the
+dominant term, so vectors are stored as **int8 plus a per-vector scale** (dim bytes
+instead of dim × 2) on 8 KiB pages, and ingested text is **not** copied into the
+embedding cache — it already lives in `vectors`, and a repeated Add is caught by the
+`request_id` claim rather than by the cache. Measured cost per turn:
+
+| storage | bytes/turn |
+|---|---|
+| float16 vectors, 4 KiB pages, documents cached | 11.1 KB |
+| int8 vectors, 4 KiB pages, documents cached | 4.1 KB |
+| **int8, 8 KiB pages, documents not cached (shipped)** | **1.9 KB** |
+
+So ~2 KB per turn: a million turns is ~2 GB. Retrieval is unchanged by the
+quantisation — LoCoMo-Refined re-measured at R@1 .748 / R@10 .957 / MRR .827, the
+same numbers as the float16 build.
+
+Throughput, measured by replaying 100 000 synthetic turns through `/add` in
+20-message chunks against the real `text-embedding-v4` endpoint: **~83 turns/s**
+on an 8-core laptop, i.e. one 20-turn Add every ~240 ms. A small VPS with the same
+embedding concurrency lands in the tens of turns per second; scale it with
+`EMBED_CONCURRENCY` and `EMBED_BATCH` (batch ≤ 10 is an API limit) and watch
+`/admin/stats` → `db_bytes` while a run is in flight.
 
 ---
 
