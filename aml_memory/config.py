@@ -129,6 +129,14 @@ class Settings:
     # Multiplier on assistant-role turns at ranking time.  1.0 keeps the fused
     # order; below 1.0 pushes long advice replies behind the user's own statements.
     assistant_prior: float = field(default_factory=lambda: _env_float("AML_ASSISTANT_PRIOR", 1.0))
+    # "Still ...? / what is X now" questions are decided by the newest statement, and
+    # the answer prompt already prefers the recent fact on conflict.  This tilts the
+    # ranking toward newer turns for that question type only; 0.0 keeps plain order.
+    update_boost: float = field(default_factory=lambda: _env_float("AML_UPDATE_BOOST", 0.0))
+    # A mild, always-on tilt toward newer turns.  The answer prompt tells the reader to
+    # prefer the most recent statement when two conflict, so breaking near-ties by recency
+    # matches the reader instead of asking it to sort the block itself.
+    recency_prior: float = field(default_factory=lambda: _env_float("AML_RECENCY_PRIOR", 0.0))
     # Volume knob: widen the top hits into a same-session context window.  Item
     # size is uncapped by the platform and the answer budget is ~117,760 tokens,
     # so the ranked head can carry far more evidence than one turn per item.

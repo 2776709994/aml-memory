@@ -197,6 +197,8 @@ class Retriever:
         entities = [entity.lower() for entity in plan.entities if len(entity) > 1][:8]
         dates = plan.dates[:3]
         recency = plan.recency
+        update_boost = float(self.settings.update_boost)
+        recency_prior = float(self.settings.recency_prior)
         total = max(1, len(index.units))
         role_prior = float(self.settings.assistant_prior)
         out: dict[int, float] = {}
@@ -223,6 +225,14 @@ class Retriever:
                             break
             if recency:
                 value *= 1.0 + 0.06 * (unit.seq / total)
+            if recency_prior > 0.0:
+                value *= 1.0 + recency_prior * (unit.seq / total)
+            if update_boost > 0.0 and "update" in plan.qtypes:
+                # "Do I still .../what is X now" questions are answered from the newest
+                # statement, and the answer prompt prefers the most recent fact when two
+                # conflict. The reader only sees a prefix, so the newer statement has to
+                # be ranked above the older one rather than left to the reader to weigh.
+                value *= 1.0 + update_boost * (unit.seq / total)
             out[idx] = value
         return out
 

@@ -374,6 +374,8 @@ The ones that actually change behaviour:
 | `AML_DEDUPE_PREFER` | `score` | which half of a duplicate survives: the better-ranked one or the more recent statement |
 | `AML_EXHAUSTIVE_CAP` | 40 | item cap for counting/list questions (`top_k` still applies) |
 | `AML_ASSISTANT_PRIOR` | 1.0 | multiplier on assistant-role turns at ranking time (1.0 = no prior) |
+| `AML_UPDATE_BOOST` | 0.0 | recency tilt for "still …?" / "what is X now" questions only; 0.25 gave +1.3 pp R@1 on LongMemEval knowledge-update |
+| `AML_RECENCY_PRIOR` | 0.0 | always-on recency tilt; neutral on LoCoMo-Refined but clearly negative on LongMemEval (0.464 → 0.432), so it ships off |
 | `AML_MERGE_MAX_UNITS` | 3 | same-speaker run length cap |
 | `AML_MAX_CONTENT_CHARS` | 700 | per-item soft cap (merged runs get 3×) |
 | `AML_TOTAL_CHAR_BUDGET` | 120000 | total characters handed to the reader |
