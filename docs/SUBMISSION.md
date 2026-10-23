@@ -9,7 +9,7 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Track | **Textual Memory** |
 | Division | **Open-source Methods** (prize-eligible) |
 | Public repository | <https://github.com/2776709994/aml-memory> |
-| Pinned commit | tag **`v1.5`** — resolve with `git rev-parse v1.5^{commit}`. The leaderboard version entry is `version_5cd19e479569` (same endpoints and token as `v1.2`); the live service reports its own build on `/health`. `v1.3` changed storage only (int8 vectors, 8 KiB pages, no duplicated embed-cache rows: 11.1 → 1.9 KB per turn); `v1.5` adds assembly correctness fixes (session-scoped merging, body-level duplicate detection, per-part headers) — public-suite retrieval numbers are unchanged and the reader proxy moves .675 → .679 |
+| Pinned commit | tag **`v1.6`** — resolve with `git rev-parse v1.6^{commit}`. The leaderboard version entry is `version_5cd19e479569` (same endpoints and token as `v1.2`); the live service reports its own build on `/health`. `v1.3` changed storage only (int8 vectors, 8 KiB pages, no duplicated embed-cache rows: 11.1 → 1.9 KB per turn); `v1.6` adds assembly correctness fixes (session-scoped merging, body-level duplicate detection, per-part headers) — public-suite retrieval numbers are unchanged and the reader proxy moves .675 → .679 |
 | License | MIT |
 | Add URL | `https://memory.thesamael.dpdns.org/add` |
 | Search URL | `https://memory.thesamael.dpdns.org/search` |
@@ -21,7 +21,7 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Method summary | Retrieval-only hybrid memory: per-turn records with speaker + absolute-date anchoring, dense cosine + BM25 fused by weighted RRF on ranks, hosted cross-encoder rerank, two-tier same-session context widening |
 | Full method disclosure | [`docs/METHOD.md`](METHOD.md) |
 | Measured on LoCoMo-Refined | retrieval R@1 .748 / R@10 .957 / MRR .827 at `top_k=100`, 134 ms/query; end-to-end with the official reader template on all 1 382 questions **.675** with context widening vs **.640** without (n.s.-free paired test, McNemar p ≈ 0.002) |
-| Deployment | one command, idempotent: `deploy/bootstrap.sh` (Docker + Caddy) or `deploy/bootstrap-noroot.sh` (no Docker, no root: private venv, supervised processes, Cloudflare Tunnel); both pin `v1.5`, generate the API token, wait for HTTPS and run the 15-check contract probe — runbooks in `deploy/AGENT_DEPLOY.md` / `deploy/AGENT_DEPLOY_NOROOT.md` |
+| Deployment | one command, idempotent: `deploy/bootstrap.sh` (Docker + Caddy) or `deploy/bootstrap-noroot.sh` (no Docker, no root: private venv, supervised processes, Cloudflare Tunnel); both pin `v1.6`, generate the API token, wait for HTTPS and run the 15-check contract probe — runbooks in `deploy/AGENT_DEPLOY.md` / `deploy/AGENT_DEPLOY_NOROOT.md` |
 | Contact / team | *fill in* |
 
 ## Evidence attached to the repo

@@ -4,7 +4,7 @@
 #   sudo AML_DOMAIN=mem.example.com EMBED_API_KEY=sk-xxxx bash deploy/bootstrap.sh
 #
 # Optional overrides:
-#   AML_TAG=v1.5            git tag to deploy (default: v1.5)
+#   AML_TAG=v1.6            git tag to deploy (default: v1.6)
 #   AML_REPO=<url>          source repository
 #   AML_DIR=/opt/aml-memory install location
 #   AML_TOKEN=<hex>         fixed API token (default: generated once, then reused)
@@ -19,7 +19,7 @@ set -euo pipefail
 
 AML_DOMAIN="${AML_DOMAIN:-}"
 EMBED_API_KEY="${EMBED_API_KEY:-}"
-AML_TAG="${AML_TAG:-v1.5}"
+AML_TAG="${AML_TAG:-v1.6}"
 AML_REPO="${AML_REPO:-https://github.com/2776709994/aml-memory.git}"
 AML_DIR="${AML_DIR:-/opt/aml-memory}"
 AML_SRC="${AML_SRC:-}"

@@ -300,13 +300,13 @@ One command on a fresh Linux box (installs Docker, fetches the pinned tag, write
 self-check, prints the values to register):
 
 ```bash
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.5/deploy/bootstrap.sh \
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.6/deploy/bootstrap.sh \
   -o /tmp/aml-bootstrap.sh && wc -c /tmp/aml-bootstrap.sh      # expect 11833
 sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-... bash /tmp/aml-bootstrap.sh
 ```
 
-(If GitHub is reachable directly, swap in `https://raw.githubusercontent.com/...v1.5/...`;
-the CDN mirror is `https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.5/deploy/bootstrap.sh`.
+(If GitHub is reachable directly, swap in `https://raw.githubusercontent.com/...v1.6/...`;
+the CDN mirror is `https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.6/deploy/bootstrap.sh`.
 That mirror caches per tag, so always check the byte count before running.)
 
 It is idempotent — re-running never regenerates the token and never touches the data
@@ -322,8 +322,8 @@ runs as an ordinary user on `127.0.0.1` and reaches the internet through a Cloud
 tunnel:
 
 ```bash
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.5/deploy/bootstrap-noroot.sh \
-  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 23084
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.6/deploy/bootstrap-noroot.sh \
+  -o /tmp/aml-bootstrap-noroot.sh && wc -c /tmp/aml-bootstrap-noroot.sh   # expect 23906
 AML_DOMAIN=memory.example.com CF_TUNNEL_TOKEN=eyJ... EMBED_API_KEY=sk-... \
   bash /tmp/aml-bootstrap-noroot.sh
 ```

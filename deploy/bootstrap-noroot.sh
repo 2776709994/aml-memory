@@ -11,13 +11,13 @@
 # 127.0.0.1:$AML_PORT and cloudflared (outbound-only) publishes it over HTTPS,
 # which also works from behind CGNAT.
 #
-# Optional env: AML_TAG (default v1.5), AML_REPO, AML_DIR ($HOME/aml-memory),
+# Optional env: AML_TAG (default v1.6), AML_REPO, AML_DIR ($HOME/aml-memory),
 # AML_PORT (8000), EMBED_BASE_URL, RERANK_API_KEY, RERANK_MODEL, CF_QUICK=1
 # (ephemeral trycloudflare hostname instead of a named tunnel), PIP_INDEX_URL,
 # AML_SRC (deploy from a local copy), SKIP_VERIFY=1.
 set -euo pipefail
 
-AML_TAG="${AML_TAG:-v1.5}"
+AML_TAG="${AML_TAG:-v1.6}"
 AML_REPO="${AML_REPO:-https://github.com/2776709994/aml-memory}"
 AML_DIR="${AML_DIR:-$HOME/aml-memory}"
 AML_PORT="${AML_PORT:-8000}"
@@ -166,30 +166,50 @@ fi
 # ---------------------------------------------------------------------------
 say "Fetch source ($AML_TAG)"
 mkdir -p "$AML_DIR"
+
+fetch_tarball() {  # $1 = destination dir
+  local tmp inner u
+  tmp="$(mktemp -d)"
+  for u in "https://ghfast.top/https://github.com/2776709994/aml-memory/archive/refs/tags/$AML_TAG.tar.gz" \
+           "https://github.com/2776709994/aml-memory/archive/refs/tags/$AML_TAG.tar.gz"; do
+    if curl -fsSL --max-time 120 --connect-timeout 15 "$u" -o "$tmp/src.tar.gz"; then break; fi
+  done
+  if [ ! -s "$tmp/src.tar.gz" ]; then rm -rf "$tmp"; return 1; fi
+  tar -xzf "$tmp/src.tar.gz" -C "$tmp" || { rm -rf "$tmp"; return 1; }
+  rm -f "$tmp/src.tar.gz"
+  inner="$(find "$tmp" -maxdepth 1 -mindepth 1 -type d | head -n1)"
+  tar -C "$inner" -cf - . | tar -C "$1" -xf - || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp"
+  return 0
+}
+
 if [ -n "$AML_SRC" ]; then
   [ -d "$AML_SRC" ] || die "AML_SRC=$AML_SRC is not a directory"
   tar -C "$AML_SRC" --exclude=.env --exclude=data --exclude=runs --exclude=logs --exclude=run \
       --exclude=.venv --exclude=bin -cf - . | tar -C "$AML_DIR" -xf -
   ok "copied from $AML_SRC"
 elif [ -d "$AML_DIR/.git" ]; then
-  git -C "$AML_DIR" fetch --tags --depth 1 origin "$AML_TAG" >/dev/null 2>&1 || true
-  git -C "$AML_DIR" checkout -q "FETCH_HEAD" 2>/dev/null || git -C "$AML_DIR" checkout -q "$AML_TAG"
-  ok "updated existing checkout to $AML_TAG"
+  # A git fetch against GitHub can hang indefinitely from a Chinese VPS (no output,
+  # no error), which used to stall the whole installer. Bound it and fall back.
+  if timeout 150 git -C "$AML_DIR" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 \
+       fetch --depth 1 origin "refs/tags/$AML_TAG:refs/tags/$AML_TAG" >/dev/null 2>&1 \
+     && git -C "$AML_DIR" checkout -q "$AML_TAG" 2>/dev/null; then
+    ok "updated existing checkout to $AML_TAG"
+  else
+    warn "git fetch did not finish; downloading the release tarball instead"
+    fetch_tarball "$AML_DIR" || die "could not update $AML_DIR (git and tarball both failed)"
+    ok "overwrote $AML_DIR with the $AML_TAG tarball"
+  fi
 elif command -v git >/dev/null 2>&1; then
-  git clone -q --depth 1 --branch "$AML_TAG" "$AML_REPO" "$AML_DIR" \
-    || die "git clone failed — check outbound HTTPS, or clone manually and pass AML_SRC=<dir>"
-  ok "cloned $AML_REPO at $AML_TAG"
+  if timeout 300 git clone -q --depth 1 --branch "$AML_TAG" "$AML_REPO" "$AML_DIR"; then
+    ok "cloned $AML_REPO at $AML_TAG"
+  else
+    warn "git clone failed; downloading the release tarball instead"
+    fetch_tarball "$AML_DIR" || die "could not fetch the source (git and tarball both failed)"
+    ok "downloaded tarball for $AML_TAG"
+  fi
 else
-  tmp="$(mktemp -d)"
-  for u in "https://ghfast.top/https://github.com/2776709994/aml-memory/archive/refs/tags/$AML_TAG.tar.gz" \
-           "https://github.com/2776709994/aml-memory/archive/refs/tags/$AML_TAG.tar.gz"; do
-    if curl -fsSL --max-time 120 "$u" -o "$tmp/src.tar.gz"; then break; fi
-  done
-  [ -s "$tmp/src.tar.gz" ] || die "could not download the source tarball"
-  tar -xzf "$tmp/src.tar.gz" -C "$tmp" && rm -f "$tmp/src.tar.gz"
-  inner="$(find "$tmp" -maxdepth 1 -mindepth 1 -type d | head -n1)"
-  tar -C "$inner" -cf - . | tar -C "$AML_DIR" -xf -
-  rm -rf "$tmp"
+  fetch_tarball "$AML_DIR" || die "could not download the source tarball"
   ok "downloaded tarball for $AML_TAG"
 fi
 [ -f "$AML_DIR/aml_memory/main.py" ] || die "$AML_DIR does not look like the aml-memory repo"
