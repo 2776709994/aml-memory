@@ -1,13 +1,17 @@
 """Pluggable cross-encoder reranking (unrestricted by the AML rules)."""
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from typing import Sequence
 
 import httpx
 import numpy as np
 
 from .config import Settings
+
+LOG = logging.getLogger("aml.rerank")
 
 
 class Reranker:
@@ -17,6 +21,8 @@ class Reranker:
         self._model = None
         self._lock = threading.Lock()
         self._client: httpx.Client | None = None
+        self._counters = {"calls": 0, "failures": 0, "retries": 0, "fallbacks": 0}
+        self._counter_lock = threading.Lock()
 
     @property
     def available(self) -> bool:
@@ -26,16 +32,48 @@ class Reranker:
             return bool(self.settings.rerank_api_key)
         return True
 
+    def _bump(self, name: str) -> None:
+        with self._counter_lock:
+            self._counters[name] = self._counters.get(name, 0) + 1
+
+    def stats(self) -> dict[str, int]:
+        """Counters that make a silently degraded deployment visible."""
+        with self._counter_lock:
+            out = dict(self._counters)
+        out["enabled"] = 1 if self.available else 0
+        return out
+
     def score(self, query: str, docs: Sequence[str]) -> list[float] | None:
         if not docs or not self.available:
             return None
+        self._bump("calls")
         try:
             if self.provider in {"local", "cross-encoder", "sentence-transformers"}:
                 return self._local_scores(query, docs)
             if self.provider in {"dashscope", "http", "api"}:
                 return self._http_scores(query, docs)
-        except Exception:
-            return None
+        except Exception as exc:  # noqa: BLE001 - degrade, never fail the search
+            self._bump("failures")
+            LOG.warning("rerank failed on %d docs (%s: %s); retrying with a shorter window",
+                        len(docs), type(exc).__name__, exc)
+        # One retry with fewer documents: a timeout or a 5xx on 60 docs very often
+        # succeeds on 20, and half a reranked window still beats pure fusion.
+        short = list(docs[: max(8, min(20, len(docs)))])
+        if short and len(short) < len(docs):
+            try:
+                time.sleep(0.2)
+                if self.provider in {"local", "cross-encoder", "sentence-transformers"}:
+                    vals = self._local_scores(query, short)
+                else:
+                    vals = self._http_scores(query, short)
+                self._bump("retries")
+                out = [0.0] * len(docs)
+                out[: len(short)] = vals
+                return out
+            except Exception as exc:  # noqa: BLE001
+                LOG.warning("rerank retry failed (%s: %s); falling back to fused order",
+                            type(exc).__name__, exc)
+        self._bump("fallbacks")
         return None
 
     # --------------------------------------------------------------- backends

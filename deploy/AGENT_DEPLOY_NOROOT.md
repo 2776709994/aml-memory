@@ -63,7 +63,7 @@ ss -ltn | grep -E ':(8000)\b' || echo "8000 空闲"
 
 ```bash
 # 1) 取脚本（国内可用 ghfast 反代；海外可直接用 raw）
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.4/deploy/bootstrap-noroot.sh \
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.5/deploy/bootstrap-noroot.sh \
   -o /tmp/aml-bootstrap-noroot.sh
 wc -c /tmp/aml-bootstrap-noroot.sh        # 应为 23084
 
@@ -77,7 +77,7 @@ bash /tmp/aml-bootstrap-noroot.sh
 脚本按顺序做这些事（每一步都自带检查）：
 
 1. 预检：python3、curl/tar、内存、磁盘、端口、域名与 token 的字符合法性，**并且真的用 `EMBED_API_KEY` 打一次 `text-embedding-v4`、用同一个 key 打一次 `gte-rerank-v2`**（嵌入 401/403 立刻报错退出，不会让你白等十分钟；重排失败只警告，检索会自动退回融合排序）；
-2. 取源码到 `$HOME/aml-memory`（v1.4 标签；已有则原地更新）；
+2. 取源码到 `$HOME/aml-memory`（v1.5 标签；已有则原地更新）；
 3. 建 Python 环境：优先用 3.10–3.12 建 venv，没有 ensurepip 就 `--without-pip` + get-pip，再不行退到用户级安装；
 4. 装依赖（依次试清华/阿里/中科大/PyPI 四个源，一个卡住或失败自动换下一个，并打印最终生效的源）；
 5. 生成 `$HOME/aml-memory/.env`：随机 `AML_API_KEY`（`chmod 600`）、嵌入 `text-embedding-v4`、重排 `gte-rerank-v2`（**默认复用同一个 key**；想关掉就传 `RERANK_API_KEY=` 并手工把 `RERANK_PROVIDER` 改成 `none`）；**文件已存在时是"合并"而不是覆盖**：已有 token 和已填的值一律保留，只补空的和缺的键（早期用临时隧道跑过一次、留下 `AML_DOMAIN=` 和 `CF_TUNNEL_TOKEN=` 空值的机器，重跑一次就会自动补齐）；
@@ -98,7 +98,7 @@ bash /tmp/aml-bootstrap-noroot.sh
 
 即可（`.env` 是合并、数据目录不动、服务自动重启；升级前建议先备份 `data/`，见附录 A）。
 
-可选参数：`AML_PORT`（默认 8000）、`AML_TAG`（默认 v1.4）、`AML_DIR`（默认 `$HOME/aml-memory`）、
+可选参数：`AML_PORT`（默认 8000）、`AML_TAG`（默认 v1.5）、`AML_DIR`（默认 `$HOME/aml-memory`）、
 `AML_SRC`（离线从本地目录部署）、`PIP_INDEX_URL`、`PIP_SPEC`（默认锁定的 `requirements.txt`）、
 `CF_QUICK=1`（**临时**隧道，见 §6）、`SKIP_VERIFY=1`、`CF_BIN`（已有 cloudflared 时直接指定）。
 
@@ -160,7 +160,7 @@ TOKEN=$(grep '^AML_API_KEY=' "$HOME/aml-memory/.env" | cut -d= -f2-)
 | 浏览器访问返回 **502** | cloudflared 在跑但服务没起 | `deploy/service-noroot.sh status`；`tail -50 logs/api.log`（常见：`EMBED_API_KEY` 无效导致启动即退出） |
 | 本地 `/health` 200，公网也 **502** | Public Hostname 的 Service Type 选成了 `HTTPS`，而服务是纯 HTTP | Cloudflare → 该隧道 → Public Hostname 里把 **Service Type 改成 `HTTP`**、URL 保持 `localhost:8000`，保存后立即生效（实测踩过） |
 | `no healthy answer on 127.0.0.1:8000` | 服务启动失败 | 同上；注意端口是否被占用（换 `AML_PORT`） |
-| 自检某项 FAIL | 版本不对或环境被改 | `git -C $HOME/aml-memory describe --tags` 必须是 `v1.4`；否则 `git fetch --tags && git checkout v1.4` 后重跑 |
+| 自检某项 FAIL | 版本不对或环境被改 | `git -C $HOME/aml-memory describe --tags` 必须是 `v1.5`；否则 `git fetch --tags && git checkout v1.5` 后重跑 |
 | `the embedding key was rejected (HTTP 401)` | 密钥失效/填错/已过期 | 到 Model Studio 控制台重新签发一个**长期** key（不要用临时 workspace key），`EMBED_API_KEY=sk-... bash /tmp/aml-bootstrap-noroot.sh` 重跑即可（`.env` 已存在时会保留 token，只改嵌入部分需手工 `sed` 或删 `.env` 重生成——注意删 `.env` 会换新 `AML_API_KEY`，榜单里也要同步改） |
 | `/add` 返回 500，日志里是 `embedding HTTP 401` | 部署完成之后 key 才失效（本方案唯一的强外部依赖） | 换新 key：`sed -i 's|^EMBED_API_KEY=.*|EMBED_API_KEY=sk-新key|' ~/aml-memory/.env && deploy/service-noroot.sh restart`；**Full 开始前务必确认 key 能长期使用**，跑到一半失效等于浪费一次机会 |
 | 服务被系统杀掉（OOM） | 内存不足 | `.env` 里设 `AML_INDEX_CACHE_VECTORS=30000`、`AML_CANDIDATE_DEPTH=300` 后 `deploy/service-noroot.sh restart`；或换更大内存的机器 |
@@ -229,7 +229,7 @@ EMBED_API_KEY=sk-新key bash /tmp/aml-bootstrap-noroot.sh
 同一套脚本，换机器重跑即可：
 
 ```bash
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.4/deploy/bootstrap-noroot.sh -o /tmp/n.sh
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.5/deploy/bootstrap-noroot.sh -o /tmp/n.sh
 AML_DOMAIN=memory.example.com CF_TUNNEL_TOKEN=eyJ... EMBED_API_KEY=sk-... bash /tmp/n.sh
 ```
 

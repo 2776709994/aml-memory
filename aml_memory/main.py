@@ -31,7 +31,7 @@ from .rerank import Reranker
 from .retrieve import Retriever
 from .store import Store
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 LOG = logging.getLogger("aml")
 logging.basicConfig(
     level=os.environ.get("AML_LOG_LEVEL", "INFO").upper(),
@@ -262,7 +262,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/admin/stats")
     def stats(_: None = Depends(verify_auth)) -> dict[str, Any]:
-        return store.stats()
+        out = store.stats()
+        out["rerank"] = reranker.stats()
+        return out
 
     return app
 
