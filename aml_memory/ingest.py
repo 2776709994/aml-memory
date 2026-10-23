@@ -159,11 +159,15 @@ class Ingestor:
             # Speaker first: the answer prompts bucket memories per speaker, and a
             # frozen reader attributes every line much more reliably when the
             # speaker name leads the line.
-            text = f"{speaker} ({readable}): {anchored}" if readable else f"{speaker}: {anchored}"
-            text = text.strip()
+            header = f"{speaker} ({readable}): " if readable else f"{speaker}: "
+            text = f"{header}{anchored}".strip()
             for part_index, chunk in enumerate(_split_long(text)):
                 unit_id = _unit_id(request_id, index, part_index)
                 created_ms = int(message_dt.timestamp() * 1000) if message_dt else None
+                # Every part repeats the header: a long reply split into pieces must
+                # not leave anonymous fragments behind, or a fragment shown alone is
+                # unattributable and undated.
+                part_text = chunk if not part_index else f"{header}[part {part_index + 1}] {chunk}"
                 units.append(
                     Unit(
                         id=unit_id,
@@ -174,7 +178,7 @@ class Ingestor:
                         speaker=speaker,
                         created_ms=created_ms,
                         date_str=date_label,
-                        text=chunk,
+                        text=part_text,
                         prev_id=None,
                         next_id=None,
                         meta={

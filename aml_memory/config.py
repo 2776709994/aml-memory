@@ -118,6 +118,17 @@ class Settings:
     # Items whose token sets overlap this much are treated as the same memory and
     # dropped from the tail: a repeat is pure distraction for the reader.
     dedupe_jaccard: float = field(default_factory=lambda: _env_float("AML_DEDUPE_JACCARD", 0.85))
+    # When two candidates are near-duplicates of each other, which one survives:
+    # "score" keeps the better-ranked one, "newer" keeps the more recent statement.
+    # Update questions ("where do I live now?") hinge on the newer half of a
+    # changed fact, and the higher-ranked half is often the stale one.
+    dedupe_prefer: str = field(default_factory=lambda: _env("AML_DEDUPE_PREFER", "score"))
+    # Counting and list questions are exhaustive by nature: capping them trims
+    # evidence the answer needs.  The cap exists to keep noise down, not volume.
+    exhaustive_cap: int = field(default_factory=lambda: _env_int("AML_EXHAUSTIVE_CAP", 40))
+    # Multiplier on assistant-role turns at ranking time.  1.0 keeps the fused
+    # order; below 1.0 pushes long advice replies behind the user's own statements.
+    assistant_prior: float = field(default_factory=lambda: _env_float("AML_ASSISTANT_PRIOR", 1.0))
     # Volume knob: widen the top hits into a same-session context window.  Item
     # size is uncapped by the platform and the answer budget is ~117,760 tokens,
     # so the ranked head can carry far more evidence than one turn per item.

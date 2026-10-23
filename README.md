@@ -222,6 +222,7 @@ differences between configurations mean anything.
 |---|---|---|---|---|---|---|
 | single-turn items, widening off | .640 | .759 | .528 | .394 | .485 | 5.3 k |
 | **two-tier widening (shipped)** | **.675** | **.808** | .512 | **.465** | .485 | 11.2 k |
+| + session-scoped expansion, per-part headers, body-level dedupe | .679 | .807 | .525 | .465 | .515 | 11.2 k |
 
 Scored over the whole suite, not a sample, and compared question by question:
 +140 questions won against 91 lost, i.e. **+3.5 points overall** (McNemar χ² = 9.97,
@@ -369,7 +370,10 @@ The ones that actually change behaviour:
 | `AML_CONTEXT_TOP` | 30 | how many top hits get the full radius |
 | `AML_CONTEXT_FILL` | 100 | ranks below `context_top` get a radius-1 window |
 | `AML_CONTEXT_FILL_TO` | 0 | >0 refills the list to that many items after widening absorbs turns |
-| `AML_DEDUPE_JACCARD` | 0.85 | token-set overlap above which two items are the same memory |
+| `AML_DEDUPE_JACCARD` | 0.85 | token-set overlap above which two items are the same memory (compared on the statement body, so a header date does not mask a repeat) |
+| `AML_DEDUPE_PREFER` | `score` | which half of a duplicate survives: the better-ranked one or the more recent statement |
+| `AML_EXHAUSTIVE_CAP` | 40 | item cap for counting/list questions (`top_k` still applies) |
+| `AML_ASSISTANT_PRIOR` | 1.0 | multiplier on assistant-role turns at ranking time (1.0 = no prior) |
 | `AML_MERGE_MAX_UNITS` | 3 | same-speaker run length cap |
 | `AML_MAX_CONTENT_CHARS` | 700 | per-item soft cap (merged runs get 3×) |
 | `AML_TOTAL_CHAR_BUDGET` | 120000 | total characters handed to the reader |

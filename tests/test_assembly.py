@@ -103,6 +103,40 @@ def test_duplicate_turns_are_deduped(tmp_path, monkeypatch):
     assert len(items) == 1, [item["content"] for item in items]
 
 
+def test_dedupe_prefers_the_newer_statement_when_asked(tmp_path, monkeypatch):
+    """Update questions ("where do I live now?") hinge on the newer half of a fact.
+
+    The default keeps the better-ranked half; AML_DEDUPE_PREFER=newer keeps the
+    later statement, which is what "now" means.
+    """
+    old = "Caroline: I live in Boston now, and honestly I really love the neighbourhood so much."
+    new = "Caroline: I live in Denver now, and honestly I really love the neighbourhood so much."
+    for prefer, expected, dropped in (("score", "Boston", None), ("newer", "Denver", "Boston")):
+        case = tmp_path / prefer
+        case.mkdir()
+        app = _app(case, monkeypatch, AML_CONTEXT_RADIUS=0, AML_DEDUPE_PREFER=prefer)
+        with TestClient(app) as client:
+            _seed(client, turns=[old], session_id="s1", start_ms=1683093600000)
+            _seed(client, turns=[new], session_id="s2", start_ms=1691000000000)
+            items = client.post("/search", json={"query": "where does Caroline live now",
+                                                 "user_id": "u1", "top_k": 100}).json()["data"]
+        text = " ".join(item["content"] for item in items)
+        assert expected in text, (prefer, text)
+        if dropped:
+            assert dropped not in text, (prefer, text)
+
+
+def test_exhaustive_cap_trims_list_answers(tmp_path, monkeypatch):
+    """Counting questions are exhaustive by nature; the cap is a knob, not a constant."""
+    turns = [f"Caroline: On trip {index} I visited town{index} with my sister." for index in range(30)]
+    app = _app(tmp_path, monkeypatch, AML_CONTEXT_RADIUS=0, AML_EXHAUSTIVE_CAP=5)
+    with TestClient(app) as client:
+        _seed(client, turns=turns)
+        items = client.post("/search", json={"query": "how many towns did I visit with my sister",
+                                             "user_id": "u1", "top_k": 100}).json()["data"]
+    assert 0 < len(items) <= 5, len(items)
+
+
 def test_index_cache_evicts_by_row_budget(tmp_path, monkeypatch):
     """A count-only cache would let a few huge users exhaust the container."""
     monkeypatch.setenv("AML_DATA_DIR", str(tmp_path))

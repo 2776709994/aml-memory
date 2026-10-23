@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 
@@ -49,6 +49,24 @@ def _jaccard(a: set[str], b: set[str]) -> float:
         return 0.0
     inter = len(a & b)
     return inter / (len(a) + len(b) - inter)
+
+
+def _body_text(text: str) -> str:
+    """Drop the "<speaker> (<date>): " header before comparing two turns.
+
+    Duplicate detection is about the statement, not the envelope: the same sentence
+    said on two dates must look identical, and keeping the date in the token set
+    makes two repeats of one fact look only 0.67 similar.
+    """
+    head, sep, rest = text.partition(": ")
+    if not sep or len(head) > 80 or "(" not in head:
+        return text
+    return rest
+
+
+def _recency_key(unit: Any) -> tuple[int, int]:
+    """Order turns by when they were said; undated turns sort first (oldest)."""
+    return (int(unit.created_ms or 0), int(unit.seq or 0))
 
 
 @dataclass
@@ -180,10 +198,16 @@ class Retriever:
         dates = plan.dates[:3]
         recency = plan.recency
         total = max(1, len(index.units))
+        role_prior = float(self.settings.assistant_prior)
         out: dict[int, float] = {}
         for idx, score in scores.items():
             unit = index.units[idx]
             value = score
+            if role_prior != 1.0 and str(unit.meta.get("role", "")).lower() in ("assistant", "ai", "bot"):
+                # Advice-heavy assistant turns crowd out the user's own statements on
+                # questions about the user's life; the prior trims them without
+                # deleting them (they still answer "what did you recommend?").
+                value *= role_prior
             if entities:
                 text = unit.text.lower()
                 hits = sum(1 for entity in entities if entity in text)
@@ -210,7 +234,7 @@ class Retriever:
         top_k: int,
     ) -> list[Block]:
         units = index.units
-        cap = top_k if not plan.exhaustive else min(top_k, 40)
+        cap = top_k if not plan.exhaustive else min(top_k, max(1, self.settings.exhaustive_cap))
         top_score = ordered[0][1] if ordered else 0.0
         base_floor = self.settings.score_floor
         if base_floor <= 0:
@@ -218,26 +242,48 @@ class Retriever:
         else:
             floor = top_score * (base_floor * 1.8 if plan.exhaustive else base_floor)
         budget = self.settings.total_char_budget
+        prefer_newer = self.settings.dedupe_prefer == "newer"
         spent = 0
 
         selected: list[tuple[int, float]] = []
+        pos_of: dict[int, int] = {}
         seen_exact: set[str] = set()
-        seen_tokens: list[set[str]] = []
+        seen_tokens: list[tuple[int, set[str]]] = []
+        window = 120
         for idx, score in ordered:
             if len(selected) >= cap:
                 break
             if score < floor and len(selected) >= self.settings.min_items:
                 break
             unit = units[idx]
-            normalized = " ".join(unit.text.lower().split())
+            body = _body_text(unit.text)
+            normalized = " ".join(body.lower().split())
             if normalized in seen_exact:
                 continue
-            tokens = _tokens(unit.text)
-            if any(_jaccard(tokens, other) > self.settings.dedupe_jaccard for other in seen_tokens[-120:]):
+            tokens = _tokens(body)
+            dup_at = -1
+            for k in range(max(0, len(seen_tokens) - window), len(seen_tokens)):
+                if _jaccard(tokens, seen_tokens[k][1]) > self.settings.dedupe_jaccard:
+                    dup_at = k
+                    break
+            if dup_at >= 0:
+                # Near-duplicate.  Which half survives decides update questions:
+                # "I moved to Denver" must beat "I live in Boston" for "where do
+                # I live now?", even when the stale half ranks higher.
+                kept_idx, _ = seen_tokens[dup_at]
+                if prefer_newer and _recency_key(unit) > _recency_key(units[kept_idx]):
+                    slot = pos_of[kept_idx]
+                    selected[slot] = (idx, score)
+                    pos_of.pop(kept_idx, None)
+                    pos_of[idx] = slot
+                    seen_tokens[dup_at] = (idx, tokens)
+                    seen_exact.add(normalized)
+                    spent += len(unit.text) - len(units[kept_idx].text)
                 continue
             selected.append((idx, score))
+            pos_of[idx] = len(selected) - 1
             seen_exact.add(normalized)
-            seen_tokens.append(tokens)
+            seen_tokens.append((idx, tokens))
             spent += len(unit.text)
             if spent >= budget:
                 break
@@ -295,8 +341,9 @@ class Retriever:
 
         for position, score in chosen:
             same_speaker = bool(run) and index.units[position].speaker == index.units[run[-1][0]].speaker
+            same_session = bool(run) and index.units[position].session_id == index.units[run[-1][0]].session_id
             contiguous = bool(run) and position == run[-1][0] + 1
-            if run and contiguous and same_speaker and score >= 0.4 * run[-1][1] and len(run) < limit:
+            if run and contiguous and same_speaker and same_session and score >= 0.4 * run[-1][1] and len(run) < limit:
                 run.append((position, score))
             else:
                 flush()
@@ -317,15 +364,26 @@ class Retriever:
             if anchor is None:
                 continue
             speaker = index.units[anchor].speaker
+            session = index.units[anchor].session_id
             added_left: list[str] = []
             added_right: list[str] = []
             for step in range(1, depth + 1):
                 left = anchor - step
                 right = position_of.get(block.ids[-1], anchor) + step
-                if left >= 0 and index.units[left].id not in used and index.units[left].speaker == speaker:
+                if (
+                    left >= 0
+                    and index.units[left].id not in used
+                    and index.units[left].speaker == speaker
+                    and index.units[left].session_id == session
+                ):
                     added_left.insert(0, index.units[left].text)
                     used.add(index.units[left].id)
-                if right < len(index.units) and index.units[right].id not in used and index.units[right].speaker == speaker:
+                if (
+                    right < len(index.units)
+                    and index.units[right].id not in used
+                    and index.units[right].speaker == speaker
+                    and index.units[right].session_id == session
+                ):
                     added_right.append(index.units[right].text)
                     used.add(index.units[right].id)
             if added_left:

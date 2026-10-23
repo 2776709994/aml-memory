@@ -31,7 +31,10 @@ input.
 
 1. **Chunking.** The platform already chunks at 20 messages / 2,000 words; the
    service keeps one *unit* per message and never merges across `request_id`
-   boundaries, so the caller's chunking is preserved.
+   boundaries, so the caller's chunking is preserved. A message longer than the unit
+   limit is split at sentence boundaries, and **every part repeats the
+   `Speaker (date):` header** (continuations are marked `[part N]`), so no fragment
+   ever reaches the reader anonymous or undated.
 2. **Speaker resolution.** The speaker is taken from an inline `Name:` prefix when
    present (the LoCoMo/PersonaMem flattening), otherwise from the message role.
    The speaker is written into the record text, not into a side channel, because
@@ -82,13 +85,16 @@ input.
 5. **Rerank.** The fused head (60 candidates) is scored by `gte-rerank-v2` through
    the DashScope rerank endpoint; on failure the reranked scores are ignored and the
    fused order stands (the service degrades, it does not error).
-6. **Assembly.** Dedupe (exact + Jaccard > `AML_DEDUPE_JACCARD`, default .85), join short same-speaker runs
+6. **Assembly.** Dedupe (exact + Jaccard > `AML_DEDUPE_JACCARD`, default .85, compared
+   on the statement body with the speaker/date header stripped, so the same sentence
+   said on two dates is recognised as one memory), join short same-speaker runs
    (≤3 turns), then **two-tier context widening**: each of the 30 highest-ranked
    blocks is expanded into its same-session window of ±2 turns, ranks 30–99 get a
    ±1 window, and every turn absorbed by a window is removed from the tail so no
-   turn is returned twice. Widening never crosses a `session_id`. Last, emit items
-   until `top_k` or a character budget is reached. Item ids are `+`-joined unit ids,
-   so a returned item is traceable to the turns it contains.
+   turn is returned twice. Merging and neighbour expansion are scoped to one
+   `session_id` as well, so an item never splices two sessions into one dated line.
+   Last, emit items until `top_k` or a character budget is reached. Item ids are
+   `+`-joined unit ids, so a returned item is traceable to the turns it contains.
 
 **Why volume is allowed:** the platform caps the number of items (100) but not the
 size of an item, and it truncates the answer prompt by *keeping a prefix of our
