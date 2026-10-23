@@ -7,7 +7,7 @@
 
 ## 0. 一句话目标
 
-把 <https://github.com/2776709994/aml-memory> 的 `v1.2` 标签部署到本机，
+把 <https://github.com/2776709994/aml-memory> 的 `v1.3` 标签部署到本机，
 对外提供 **HTTPS** 的 `/add`、`/search`、`/health`，通过 15 项契约自检，然后**停下**等人类做榜单注册。
 
 ---
@@ -48,7 +48,7 @@ command -v docker && docker --version; command -v git; command -v openssl
 
 ```bash
 # 主路径：ghfast 反代下载脚本（国内可直连，内容与官方 raw 同步）
-curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh \
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.3/deploy/bootstrap.sh \
   -o /tmp/aml-bootstrap.sh
 wc -c /tmp/aml-bootstrap.sh        # 应为 11833
 sudo AML_DOMAIN=mem.example.com EMBED_API_KEY=sk-你的key bash /tmp/aml-bootstrap.sh
@@ -58,10 +58,10 @@ sudo AML_DOMAIN=mem.example.com EMBED_API_KEY=sk-你的key bash /tmp/aml-bootstr
 
 ```bash
 # 官方 raw（海外网络最快；国内常被墙）
-curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.2/deploy/bootstrap.sh -o /tmp/aml-bootstrap.sh
+curl -fsSL https://raw.githubusercontent.com/2776709994/aml-memory/v1.3/deploy/bootstrap.sh -o /tmp/aml-bootstrap.sh
 
 # jsDelivr CDN（国内一般可达；按标签缓存，可能是旧版本，务必看字节数）
-curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstrap.sh -o /tmp/aml-bootstrap.sh
+curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.3/deploy/bootstrap.sh -o /tmp/aml-bootstrap.sh
 ```
 
 > 校验拿到的是不是同一份脚本：`wc -c /tmp/aml-bootstrap.sh` 应为 **11833** 字节，
@@ -74,8 +74,8 @@ curl -fsSL https://cdn.jsdelivr.net/gh/2776709994/aml-memory@v1.2/deploy/bootstr
 git clone https://github.com/2776709994/aml-memory.git /opt/aml-memory-src
 sudo AML_DOMAIN=... EMBED_API_KEY=... bash /opt/aml-memory-src/deploy/bootstrap.sh
 
-# B. 人类给你一个 tar 包（aml-memory-v1.2.tar.gz）时
-mkdir -p /opt/aml-memory-src && tar xzf aml-memory-v1.2.tar.gz -C /opt/aml-memory-src --strip-components=1
+# B. 人类给你一个 tar 包（aml-memory-v1.3.tar.gz）时
+mkdir -p /opt/aml-memory-src && tar xzf aml-memory-v1.3.tar.gz -C /opt/aml-memory-src --strip-components=1
 sudo AML_DOMAIN=... EMBED_API_KEY=... AML_SRC=/opt/aml-memory-src bash /opt/aml-memory-src/deploy/bootstrap.sh
 ```
 
@@ -83,7 +83,7 @@ sudo AML_DOMAIN=... EMBED_API_KEY=... AML_SRC=/opt/aml-memory-src bash /opt/aml-
 
 1. 预检：root、内存、磁盘、DNS、80/443、必要命令；
 2. 安装并启动 Docker（已装则跳过）；
-3. `git clone` 到 `/opt/aml-memory` 并 `checkout v1.2`（已存在则原地更新）；
+3. `git clone` 到 `/opt/aml-memory` 并 `checkout v1.3`（已存在则原地更新）；
 4. 生成 `/opt/aml-memory/.env`（`AML_API_KEY` 用 `openssl rand` 生成，`chmod 600`）；**文件已存在时不会覆盖，token 保持不变**；
 5. `docker compose --env-file ../.env up -d --build`（aml-memory + caddy 两个容器）；
 6. 等容器 `healthy`（最多 5 分钟）；
@@ -93,7 +93,7 @@ sudo AML_DOMAIN=... EMBED_API_KEY=... AML_SRC=/opt/aml-memory-src bash /opt/aml-
 
 预计耗时：首次 5–10 分钟（含镜像构建），重复执行 1–2 分钟。
 
-可选参数：`AML_TAG`（默认 `v1.2`）、`AML_DIR`（默认 `/opt/aml-memory`）、`AML_TOKEN`（固定 token）、`SKIP_DNS_CHECK=1`（DNS 还没生效但想先把服务跑起来）、`SKIP_VERIFY=1`。
+可选参数：`AML_TAG`（默认 `v1.3`）、`AML_DIR`（默认 `/opt/aml-memory`）、`AML_TOKEN`（固定 token）、`SKIP_DNS_CHECK=1`（DNS 还没生效但想先把服务跑起来）、`SKIP_VERIFY=1`。
 
 ---
 
@@ -154,7 +154,7 @@ docker compose --env-file ../.env exec -T aml-memory \
 | `https://<域名>/health` 非 200，但容器 healthy | 证书没签下来 | `docker compose --env-file ../.env logs --tail 50 caddy`；常见原因：DNS 不指向本机、云厂商安全组没放 80、Let's Encrypt 限流（等 1 小时） |
 | `container did not reach 'healthy'` | 嵌入 key 无效 / 网络不通 / 磁盘满 | `docker compose --env-file ../.env logs --tail 80 aml-memory`，检查 `EMBED_API_KEY` 与出网 |
 | 构建卡在 `pip install` 或拉不到镜像 | 无法访问 Docker Hub / PyPI | 脚本**已经自动重试过一次**（换 daocloud 镜像 + 清华 pip 源）；两次都失败再手动：`docker compose --env-file ../.env build --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/`，或 `CADDY_IMAGE=docker.m.daocloud.io/library/caddy:2-alpine` 后重跑脚本 |
-| 自检某项 FAIL，例如 `add did not echo request_id` | 镜像版本不对 | `git -C /opt/aml-memory describe --tags` 必须是 `v1.2`；否则 `git fetch --tags && git checkout v1.2` 后重跑 |
+| 自检某项 FAIL，例如 `add did not echo request_id` | 镜像版本不对 | `git -C /opt/aml-memory describe --tags` 必须是 `v1.3`；否则 `git fetch --tags && git checkout v1.3` 后重跑 |
 | 自检 `search latency p50` 超 2000 ms | 嵌入/重排接口慢或机器过载 | 看 `docker stats`；必要时在 `.env` 里把 `EMBED_CONCURRENCY` 降到 4 |
 | 容器被杀（OOM） | 内存 < 2 GB 或用户数据过大 | 加内存，或在 `.env` 里设 `AML_MEMORY_LIMIT=3g`（4 GB 机器）、`AML_INDEX_CACHE_VECTORS=60000` |
 | `docker: command not found` 且安装失败 | 出网受限 | 让人类用云厂商镜像装 Docker，或改用阿里云 ECS 自带的 docker-ce |
@@ -169,7 +169,7 @@ docker compose --env-file ../.env exec -T aml-memory \
 状态：部署完成 / 卡在第 X 步
 机器：<云厂商/规格/公网IP>
 域名：<AML_DOMAIN>（解析 IP：<ip>，与实际是否一致：是）
-版本：aml-memory v1.2（commit <short>）
+版本：aml-memory v1.3（commit <short>）
 容器：aml-memory <healthy|...>，aml-caddy <running|...>
 自检：15/15 PASS（或：第 N 项 FAIL，原文：...）
 HTTPS：https://<域名>/health -> 200（或错误码）
@@ -195,7 +195,7 @@ curl -s http://127.0.0.1:8000/admin/stats -H "authorization: Bearer $TOKEN"   # 
 docker compose --env-file ../.env restart aml-memory       # 重启（数据在卷里，不丢）
 docker run --rm -v deploy_aml-data:/data -v "$PWD":/backup alpine \
   tar czf /backup/aml-data-$(date +%F).tgz -C /data .      # 备份（建议每天一次）
-git -C /opt/aml-memory describe --tags                     # 当前版本，必须始终是 v1.2
+git -C /opt/aml-memory describe --tags                     # 当前版本，必须始终是 v1.3
 ```
 
 评测期间（人类跑 Full 时）**不要**升级版本、不要改 `.env`、不要重启机器：平台在评测窗口内认定版本冻结。
