@@ -9,7 +9,7 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Track | **Textual Memory** |
 | Division | **Open-source Methods** (prize-eligible) |
 | Public repository | <https://github.com/2776709994/aml-memory> |
-| Pinned commit | tag **`v1.3`** — resolve with `git rev-parse v1.3^{commit}` (a tag, so the hash stays valid however many doc commits follow). The registered version label on the leaderboard is `v1.2`; the live service runs **`v1.3`**, whose retrieval code is unchanged — the difference is the storage format (int8 vectors, 8 KiB pages, no duplicated embed-cache rows: 11.1 → 1.9 KB per turn) measured on the same suite at identical retrieval numbers |
+| Pinned commit | tag **`v1.3`** — resolve with `git rev-parse v1.3^{commit}` (= `291509f`). The leaderboard version entry is bound as **`v1.3`** (`version_5cd19e479569`) to the same endpoints and token as `v1.2`; the live service reports `{"version": "1.3.0"}` on `/health`. `v1.3` differs from `v1.2` only in storage (int8 vectors, 8 KiB pages, no duplicated embed-cache rows: 11.1 → 1.9 KB per turn) and deployment scripts — retrieval code and numbers are identical |
 | License | MIT |
 | Add URL | `https://memory.thesamael.dpdns.org/add` |
 | Search URL | `https://memory.thesamael.dpdns.org/search` |
