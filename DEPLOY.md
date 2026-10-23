@@ -14,7 +14,7 @@
 
 ```bash
 sudo AML_DOMAIN=memory.example.com EMBED_API_KEY=sk-你的key bash <(curl -fsSL \
-  https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.3/deploy/bootstrap.sh)
+  https://ghfast.top/https://raw.githubusercontent.com/2776709994/aml-memory/v1.4/deploy/bootstrap.sh)
 ```
 
 （海外机器可把 `https://ghfast.top/https://raw.githubusercontent.com/...` 换成
