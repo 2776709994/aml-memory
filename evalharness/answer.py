@@ -176,6 +176,36 @@ def score_one(chat_answer: Chat, chat_judge: Chat, row: dict) -> dict:
     return {"label": parse_label(verdict), "generated": generated.strip(), "explanation": verdict.strip()[:600]}
 
 
+_RATE_YUAN_PER_M = {  # rough list price, yuan per million *input* tokens
+    "qwen-flash": 0.15,
+    "qwen-turbo": 0.3,
+    "qwen-plus": 0.8,
+    "qwen-max": 2.4,
+    "qwen3-max": 6.0,
+    "deepseek": 2.0,
+    "glm": 4.0,
+}
+
+
+def _rate(model: str) -> float:
+    """Approximate price so a run can print what it just cost.
+
+    These are list prices, not invoices: the point is to make the expensive step
+    visible *before* the account runs dry, not to reconcile the bill.  Override with
+    e.g. PROXY_RATE_QWEN_MAX=20 if the deployment prices differently.
+    """
+    env_key = "PROXY_RATE_" + model.upper().replace("-", "_").replace(".", "_")
+    if os.environ.get(env_key):
+        try:
+            return float(os.environ[env_key])
+        except ValueError:
+            pass
+    for name, rate in _RATE_YUAN_PER_M.items():
+        if model.startswith(name):
+            return rate
+    return 2.0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", required=True, help="runner output json with --keep-content")
@@ -184,7 +214,17 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--concurrency", type=int, default=6)
     parser.add_argument("--answer-model", default=os.environ.get("PROXY_ANSWER_MODEL", "qwen-flash"))
-    parser.add_argument("--judge-model", default=os.environ.get("PROXY_JUDGE_MODEL", "qwen-max"))
+    parser.add_argument("--judge-model", default=os.environ.get("PROXY_JUDGE_MODEL", "qwen-flash"))
+    # The judge is the expensive half of this harness: a full 1 382-question suite judged
+    # by a max-tier model is real money, and this is only ever used to compare
+    # configurations against each other.  Cheap judge + a hard token budget by default;
+    # asking for more is an explicit decision.
+    parser.add_argument("--budget-tokens", type=int,
+                        default=int(os.environ.get("PROXY_BUDGET_TOKENS", "1500000")),
+                        help="stop starting new questions once this many tokens are spent (0 = no cap)")
+    parser.add_argument("--sample", type=int, default=0,
+                        help="stratified sample of N questions across categories (0 = all)")
+    parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--out", default="")
     args = parser.parse_args()
 
@@ -213,6 +253,26 @@ def main() -> None:
     if args.only_categories:
         wanted = {name.strip() for name in args.only_categories.split(",") if name.strip()}
         rows = [row for row in rows if (row.get("category") or "unknown") in wanted]
+    if args.sample and args.sample < len(rows):
+        # Stratified by category so a 300-question run still says something about every
+        # slice; deterministic for a given seed so two configs are compared on the same
+        # questions.
+        import random
+
+        rng = random.Random(args.seed)
+        buckets: dict[str, list[dict]] = {}
+        for row in rows:
+            buckets.setdefault(row.get("category") or "unknown", []).append(row)
+        picked: list[dict] = []
+        remaining = args.sample
+        for category, bucket in sorted(buckets.items()):
+            share = max(1, round(args.sample * len(bucket) / len(rows)))
+            share = min(share, len(bucket), remaining)
+            picked.extend(rng.sample(bucket, share))
+            remaining -= share
+            if remaining <= 0:
+                break
+        rows = picked
     if args.limit:
         rows = rows[: args.limit]
     print(f"scoring {len(rows)} questions with answer={args.answer_model} judge={args.judge_model}", flush=True)
@@ -222,7 +282,15 @@ def main() -> None:
 
     out: list[dict] = [None] * len(rows)  # type: ignore[list-item]
 
+    skipped = 0
+
     def work(index: int) -> None:
+        nonlocal skipped
+        if args.budget_tokens and (
+            chat_answer.prompt_tokens + chat_judge.prompt_tokens >= args.budget_tokens
+        ):
+            skipped += 1
+            return
         row = rows[index]
         verdict = score_one(chat_answer, chat_judge, row)
         out[index] = {"category": row.get("category"), "sample_id": row.get("sample_id"),
@@ -253,6 +321,12 @@ def main() -> None:
     print(f"prompt_tokens={chat_answer.prompt_tokens + chat_judge.prompt_tokens} "
           f"completion_tokens={chat_answer.completion_tokens + chat_judge.completion_tokens} "
           f"calls={chat_answer.calls + chat_judge.calls} failures={chat_answer.failures + chat_judge.failures}")
+    if skipped:
+        print(f"budget stop: {skipped} question(s) skipped after reaching "
+              f"--budget-tokens={args.budget_tokens:,}")
+    spent = (chat_answer.prompt_tokens + chat_judge.prompt_tokens) / 1e6
+    print(f"~{spent:.2f}M prompt tokens ≈ ¥{spent * _rate(args.answer_model) + spent * _rate(args.judge_model):.2f} "
+          f"at list price (answer {args.answer_model} + judge {args.judge_model})")
 
     if args.out:
         target = Path(args.out)
