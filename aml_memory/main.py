@@ -108,6 +108,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     ingest_gate = threading.BoundedSemaphore(max(1, settings.max_concurrent_ingest))
     search_gate = threading.BoundedSemaphore(max(1, settings.max_concurrent_search))
+    # Counted so /admin/stats shows a provider outage instead of hiding it behind a
+    # silently degraded ranking.
+    embed_failures = {"add": 0, "search": 0}
+    embed_failure_lock = threading.Lock()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -125,6 +129,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="AML Memory Service", version=VERSION, lifespan=lifespan,
                   default_response_class=ORJSONResponse)
+    for name, component in (
+        ("store", store), ("embedder", embedder), ("reranker", reranker), ("retriever", retriever),
+    ):
+        setattr(app.state, name, component)
 
     def verify_auth(
         request: Request,
@@ -211,7 +219,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 request_id=request_id, user_id=user_id, session_id=session_id, messages=messages,
             )
             with ingest_gate:
-                vectors = embedder.embed_documents([unit.text for unit in units]) if units else []
+                # A provider outage must degrade the *ranking*, never the write: the
+                # contract says an Add that returns 200 is persisted and searchable, and
+                # the platform retries 32 times before failing the whole stage.  Storing
+                # the turn without a vector keeps it retrievable through BM25.
+                try:
+                    vectors: list[Any] = (
+                        embedder.embed_documents([unit.text for unit in units]) if units else []
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    with embed_failure_lock:
+                        embed_failures["add"] += 1
+                    LOG.error(
+                        "add %s: embedding failed, storing %d unit(s) for lexical retrieval: %s",
+                        request_id, len(units), exc,
+                    )
+                    vectors = [None] * len(units)
                 store.insert_add(
                     request_id=request_id,
                     user_id=user_id,
@@ -264,6 +287,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def stats(_: None = Depends(verify_auth)) -> dict[str, Any]:
         out = store.stats()
         out["rerank"] = reranker.stats()
+        with embed_failure_lock:
+            out["embed_failures"] = dict(embed_failures)
         return out
 
     return app

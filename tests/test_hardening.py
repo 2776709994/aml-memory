@@ -144,6 +144,52 @@ def test_embed_cache_is_capped_so_a_long_run_cannot_fill_the_disk(tmp_path, monk
     assert "h0" not in store.load_cached_vectors("hash", ["h0"])
 
 
+def test_a_failed_embedding_still_persists_the_turn(tmp_path, monkeypatch):
+    """The embedding provider is the one hard external dependency.  When it fails
+    (403 on a key whose model access lapsed, a 500, a timeout) the Add must still
+    return 200 and the text must still be findable through BM25: a 500 here means
+    the platform retries 32 times and then zeroes the whole stage."""
+    from fastapi.testclient import TestClient
+
+    settings, main = _fresh_modules(tmp_path, monkeypatch, AML_STORE="1")
+    app = main.create_app(settings)
+    with TestClient(app) as client:
+        embedder = app.state.embedder if hasattr(app.state, "embedder") else None
+        # The retriever owns the embedder; failing it is the same as the provider dying.
+        retriever = app.state.retriever if hasattr(app.state, "retriever") else None
+        target = embedder or (retriever.embedder if retriever is not None else None)
+        assert target is not None, "could not reach the embedder from app.state"
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("embedding HTTP 403: AccessDenied.Unpurchased")
+
+        monkeypatch.setattr(target, "embed_documents", boom)
+        monkeypatch.setattr(target, "embed_queries", boom)
+
+        resp = client.post(
+            "/add",
+            json={
+                "request_id": "req-degraded",
+                "user_id": "u1",
+                "session_id": "s1",
+                "messages": [
+                    {"role": "user", "content": "User: I signed up for a pottery class yesterday.",
+                     "timestamp": 1_690_000_000_000}
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["success"] is True
+
+        found = client.post("/search", json={"query": "pottery class", "user_id": "u1", "top_k": 5})
+        assert found.status_code == 200, found.text
+        contents = " ".join(item["content"] for item in found.json()["data"])
+        assert "pottery" in contents, contents
+
+        stats = client.get("/admin/stats").json()
+        assert stats["embed_failures"]["add"] >= 1
+
+
 def test_vectors_are_stored_as_int8_and_still_rank_correctly(tmp_path, monkeypatch):
     """Storage cost per turn is dominated by the embedding: float16 at dim 1024 is
     2 KB and a Full run touches millions of turns. int8 keeps dim bytes and loses

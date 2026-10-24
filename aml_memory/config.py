@@ -111,7 +111,12 @@ class Settings:
     # the fused scores through).
     rerank_timeout_s: int = field(default_factory=lambda: _env_int("RERANK_TIMEOUT_S", 12))
     max_content_chars: int = field(default_factory=lambda: _env_int("AML_MAX_CONTENT_CHARS", 700))
-    total_char_budget: int = field(default_factory=lambda: _env_int("AML_TOTAL_CHAR_BUDGET", 120000))
+    # The reader's answer budget on the leaderboard is ~117,760 input tokens, and it
+    # keeps a *prefix* of our list, so unused budget is thrown away while extra tail
+    # items cost nothing (they are dropped first if anything is dropped at all).
+    # 320k characters is ~80k tokens of English: enough tail to fill all 100 slots on
+    # a 10k-turn conversation without ever approaching the reader's ceiling.
+    total_char_budget: int = field(default_factory=lambda: _env_int("AML_TOTAL_CHAR_BUDGET", 320000))
     min_items: int = field(default_factory=lambda: _env_int("AML_MIN_ITEMS", 8))
     expand_neighbors: int = field(default_factory=lambda: _env_int("AML_EXPAND_NEIGHBORS", 1))
     merge_max_units: int = field(default_factory=lambda: _env_int("AML_MERGE_MAX_UNITS", 3))
@@ -141,6 +146,10 @@ class Settings:
     # size is uncapped by the platform and the answer budget is ~117,760 tokens,
     # so the ranked head can carry far more evidence than one turn per item.
     context_radius: int = field(default_factory=lambda: _env_int("AML_CONTEXT_RADIUS", 2))
+    # Counting/list questions are graded on completeness *and* on not adding extras, so
+    # widening them can cost more than it pays.  1 keeps the shared behaviour; 0 skips
+    # widening for exhaustive queries only.
+    exhaustive_widen: int = field(default_factory=lambda: _env_int("AML_EXHAUSTIVE_WIDEN", 1))
     context_top: int = field(default_factory=lambda: _env_int("AML_CONTEXT_TOP", 30))
     # ranks in [context_top, context_fill) get a radius-1 window: the head buys
     # precision, the middle keeps the list at single/degenerate granularity.
@@ -148,8 +157,10 @@ class Settings:
     # Widening absorbs turn ids, so the list can end up shorter than `top_k` (we
     # observed ~82 items).  The reader keeps a PREFIX of what we return and its
     # budget is ~117,760 tokens, so an unused slot is wasted evidence: refill it
-    # from the pre-widening order.  0 = off.
-    context_fill_to: int = field(default_factory=lambda: _env_int("AML_CONTEXT_FILL_TO", 0))
+    # from the pre-widening order.  On a small corpus the reserve is already
+    # absorbed and this is a no-op; on a long conversation it is what keeps the
+    # list at 100 distinct memories instead of ~60.  0 = off.
+    context_fill_to: int = field(default_factory=lambda: _env_int("AML_CONTEXT_FILL_TO", 100))
     rrf_k: int = field(default_factory=lambda: _env_int("AML_RRF_K", 20))
     dense_weight: float = field(default_factory=lambda: _env_float("AML_DENSE_WEIGHT", 1.0))
     bm25_weight: float = field(default_factory=lambda: _env_float("AML_BM25_WEIGHT", 1.0))

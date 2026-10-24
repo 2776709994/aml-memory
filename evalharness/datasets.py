@@ -321,11 +321,100 @@ def load_longmemeval(path: str | Path) -> list[Instance]:
     return instances
 
 
+def load_beam(path: str | Path) -> list[Instance]:
+    """BEAM (github.com/mohammadtavakoli78/BEAM): 20 chats x 10 abilities x 2 questions.
+
+    Each chat is three batches of turns; every turn carries its own ``time_anchor``
+    ("March-15-2024") rather than a session-level date, so the timestamps here are
+    per-turn.  The abilities map closely onto the leaderboard's capability axes
+    (knowledge_update / contradiction_resolution -> governance, instruction_following
+    -> rules, abstention -> epistemic safety, temporal_reasoning / event_ordering ->
+    time), which makes this the closest public proxy for a Full run.
+    """
+    root = Path(path)
+    convs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    instances: list[Instance] = []
+    for conv in convs:
+        chat_file = conv / "chat.json"
+        prob_file = conv / "probing_questions" / "probing_questions.json"
+        if not chat_file.exists() or not prob_file.exists():
+            continue
+        batches = json.loads(chat_file.read_text(encoding="utf-8"))
+        sessions: list[Session] = []
+        speakers: list[str] = []
+        for batch in batches:
+            turns: list[Turn] = []
+            for group in batch.get("turns") or []:
+                for raw in group:
+                    role = str(raw.get("role") or "user")
+                    text = str(raw.get("content") or "").strip()
+                    if not text:
+                        continue
+                    speaker = "User" if role == "user" else "Assistant"
+                    if speaker not in speakers:
+                        speakers.append(speaker)
+                    when = _beam_time(raw.get("time_anchor"))
+                    turns.append(
+                        Turn(
+                            speaker=speaker,
+                            text=text,
+                            dia_id=str(raw.get("index") or len(turns)),
+                            timestamp=when,
+                        )
+                    )
+            if turns:
+                sessions.append(Session(index=len(sessions) + 1, when=turns[0].timestamp, turns=turns))
+        probes = json.loads(prob_file.read_text(encoding="utf-8"))
+        qas: list[QA] = []
+        for ability, items in (probes.items() if isinstance(probes, dict) else []):
+            for item in items or []:
+                question = str(item.get("question") or "").strip()
+                if not question:
+                    continue
+                gold = ""
+                for field_name in ("answer", "ideal_answer", "ideal_response", "ideal_summary"):
+                    value = item.get(field_name)
+                    if value:
+                        gold = value if isinstance(value, str) else "; ".join(str(v) for v in value)
+                        break
+                rubric = item.get("rubric")
+                if not gold and isinstance(rubric, list):
+                    gold = "\n".join(str(part) for part in rubric)
+                category = ability if isinstance(ability, str) else str(ability)
+                qas.append(
+                    QA(
+                        question=question,
+                        answer=str(gold),
+                        evidence=[],
+                        category=category,
+                        adversarial=str(item.get("abstention_type") or ""),
+                    )
+                )
+        if sessions and qas:
+            instances.append(
+                Instance(sample_id=f"beam-{conv.name}", speakers=speakers or ["User"], sessions=sessions, qas=qas)
+            )
+    return instances
+
+
+def _beam_time(value: Any) -> _dt.datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%B-%d-%Y", "%B %d, %Y", "%Y-%m-%d"):
+        try:
+            return _dt.datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return parse_session_time(text)
+
+
 LOADERS = {
     "locomo": load_locomo,
     "locomo-refined": load_locomo_refined,
     "locomo_refined": load_locomo_refined,
     "longmemeval": load_longmemeval,
+    "beam": load_beam,
 }
 
 

@@ -305,7 +305,7 @@ class Retriever:
         blocks = self._expand_neighbours(index, blocks)
         blocks.sort(key=lambda block: block.score, reverse=True)
         reserve = list(blocks)
-        blocks = self._widen_top(index, blocks)
+        blocks = self._widen_top(index, blocks, plan)
         blocks = self._refill(index, blocks, reserve)
 
         out: list[Block] = []
@@ -402,7 +402,7 @@ class Retriever:
                 block.content = "\n".join([block.content, *added_right])
         return blocks
 
-    def _widen_top(self, index: UserIndex, blocks: list[Block]) -> list[Block]:
+    def _widen_top(self, index: UserIndex, blocks: list[Block], plan: QueryPlan) -> list[Block]:
         """Give the highest-ranked hits a wider context window.
 
         The platform keeps a PREFIX of our list, and the cap is 100 ITEMS, not 100
@@ -414,6 +414,10 @@ class Retriever:
         pay for the extra volume.
         """
         radius = self.settings.context_radius
+        if plan.exhaustive and not self.settings.exhaustive_widen:
+            # A counting/list answer is graded on completeness AND on not listing extras,
+            # so padding a hit with its neighbours invites the reader to enumerate them.
+            return blocks
         if radius <= 0 or not blocks:
             return blocks
         fill = self.settings.context_fill
