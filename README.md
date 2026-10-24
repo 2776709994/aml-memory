@@ -372,6 +372,8 @@ The ones that actually change behaviour:
 | `AML_CONTEXT_FILL_TO` | 0 | >0 refills the list to that many items after widening absorbs turns |
 | `AML_DEDUPE_JACCARD` | 0.85 | token-set overlap above which two items are the same memory (compared on the statement body, so a header date does not mask a repeat) |
 | `AML_DEDUPE_PREFER` | `score` | which half of a duplicate survives: the better-ranked one or the more recent statement |
+| `AML_FORGET_MATCHING` | `0` | retire a turn that a later turn explicitly retracts (`forget that I…`, `I no longer…`) so the reader never sees both halves of a changed fact |
+| `AML_FORGET_THRESHOLD` | `0.45` | how much of the retraction's subject has to appear in the candidate turn before it is retired |
 | `AML_EXHAUSTIVE_CAP` | 40 | item cap for counting/list questions (`top_k` still applies) |
 | `AML_ASSISTANT_PRIOR` | 1.0 | multiplier on assistant-role turns at ranking time (1.0 = no prior) |
 | `AML_UPDATE_BOOST` | 0.0 | recency tilt for "still …?" / "what is X now" questions only; 0.25 gave +1.3 pp R@1 on LongMemEval knowledge-update |
@@ -446,6 +448,30 @@ Two things to do when the provider is back: repair the hole and check the counte
 The same backfill is available over HTTP as `POST /admin/backfill?limit=500` (auth
 required) and returns `{"embedded": n, "remaining": n}`. It is safe while the service is
 running: it takes the Add write lock and invalidates the affected user indexes.
+
+### Retractions without rewriting history
+
+Memory systems get this wrong in two opposite ways. Some never forget, so a changed fact
+arrives twice and the reader picks a coin flip. Others rewrite history on every "actually",
+and then a question about the past has nothing left to read.
+
+This service keeps every turn and only marks one **superseded**: when a turn explicitly
+retracts an earlier one — `forget that I…`, `I no longer…`, `scratch that`, `please
+ignore…` — the older row stops being searchable, and the retraction itself is stored like
+any other turn. `superseded` in `/admin/stats` counts them; nothing is ever deleted.
+
+```
+POST /add  "My home address is 12 Main Street, Bristol."
+POST /add  "Forget my home address, that was the old place."
+GET  /search "home address"  ->  only the retraction comes back
+```
+
+It is off by default (`AML_FORGET_MATCHING=0`). The match is lexical — containment of the
+retraction's subject words in the candidate, at least two of them, frame words like
+*forget/actually/old* removed first — and a wrong retirement is a silent answer loss, so
+it has to earn its place in an A/B rather than be assumed. What it will never do: cross a
+`user_id`, retire more than one turn per retraction, or act on a bare "forget everything"
+(that is a product decision, not a heuristic one).
 
 ---
 

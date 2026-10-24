@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import Settings, load_settings
 from .embeddings import Embedder
+from . import governance
 from .ingest import Ingestor, parse_messages
 from .llm import LLM
 from .rerank import Reranker
@@ -243,6 +244,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     vectors=vectors,
                     model=settings.embed_model,
                 )
+                # An explicit retraction ("forget that I…", "I no longer…") retires the
+                # older turn it refers to, so the reader is never handed both halves of a
+                # changed fact. Off by default; a wrong retirement is a silent answer loss.
+                if settings.forget_matching and units:
+                    try:
+                        retired = governance.apply(
+                            store, user_id=user_id, new_units=units,
+                            threshold=settings.forget_threshold,
+                        )
+                        if retired:
+                            LOG.info("add %s: %d turn(s) superseded for %s",
+                                     request_id, retired, user_id)
+                    except Exception as exc:  # noqa: BLE001
+                        LOG.warning("add %s: retraction pass skipped: %s", request_id, exc)
         elapsed = (time.perf_counter() - started) * 1000
         LOG.info(
             "add request_id=%s user=%s session=%s messages=%d units=%d %.0fms",

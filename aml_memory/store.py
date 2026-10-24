@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS units (
     text        TEXT NOT NULL,
     prev_id     TEXT,
     next_id     TEXT,
-    meta        TEXT
+    meta        TEXT,
+    superseded_by TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_units_user ON units(user_id, seq);
 CREATE INDEX IF NOT EXISTS idx_units_session ON units(user_id, session_id, seq);
@@ -143,6 +144,11 @@ class Store:
             if "scale" not in cols:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN scale REAL NOT NULL DEFAULT 1.0")
                 conn.commit()
+        # v1.8: a turn can be superseded by a later retraction. NULL = live.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(units)")}
+        if "superseded_by" not in cols:
+            conn.execute("ALTER TABLE units ADD COLUMN superseded_by TEXT")
+            conn.commit()
 
     # ---------------------------------------------------------------- plumbing
     def _conn(self) -> sqlite3.Connection:
@@ -331,6 +337,57 @@ class Store:
         ).fetchone()
         return int(row[0]) if row else 0
 
+    # ------------------------------------------------------------- governance
+    def earlier_units(self, user_id: str, *, before_seq: int, limit: int = 600) -> list[Unit]:
+        """Live turns of one user that predate `before_seq`, newest first."""
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT id,user_id,session_id,seq,kind,speaker,created_ms,date_str,text,prev_id,next_id,meta"
+            " FROM units WHERE user_id = ? AND seq < ? AND superseded_by IS NULL"
+            " ORDER BY seq DESC LIMIT ?",
+            (user_id, int(before_seq), int(limit)),
+        ).fetchall()
+        return [
+            Unit(
+                id=row["id"], user_id=row["user_id"], session_id=row["session_id"] or "",
+                seq=row["seq"], kind=row["kind"], speaker=row["speaker"] or "",
+                created_ms=row["created_ms"], date_str=row["date_str"] or "",
+                text=row["text"], prev_id=row["prev_id"], next_id=row["next_id"],
+                meta=json.loads(row["meta"]) if row["meta"] else {},
+            )
+            for row in rows
+        ]
+
+    def mark_superseded(self, unit_ids: Sequence[str], *, by_id: str) -> int:
+        """Retire turns that a later turn explicitly retracted (never deletes them)."""
+        if not unit_ids:
+            return 0
+        marked = 0
+        with self._cache_lock:
+            with self._conn() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                for unit_id in unit_ids:
+                    cur = conn.execute(
+                        "UPDATE units SET superseded_by = ? WHERE id = ? AND superseded_by IS NULL",
+                        (by_id, unit_id),
+                    )
+                    if cur.rowcount:
+                        marked += 1
+                        row = conn.execute(
+                            "SELECT user_id FROM units WHERE id = ?", (unit_id,)
+                        ).fetchone()
+                        if row is not None:
+                            self._versions[row["user_id"]] = self._versions.get(row["user_id"], 0) + 1
+                conn.commit()
+        return marked
+
+    def count_superseded(self) -> int:
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM units WHERE superseded_by IS NOT NULL"
+        ).fetchone()
+        return int(row[0]) if row else 0
+
     def set_unit_vectors(
         self, model: str, items: Sequence[tuple[str, np.ndarray]]
     ) -> int:
@@ -419,7 +476,7 @@ class Store:
         conn = self._conn()
         rows = conn.execute(
             "SELECT id,user_id,session_id,seq,kind,speaker,created_ms,date_str,text,prev_id,next_id,meta"
-            " FROM units WHERE user_id = ? ORDER BY seq",
+            " FROM units WHERE user_id = ? AND superseded_by IS NULL ORDER BY seq",
             (user_id,),
         ).fetchall()
         units = [
@@ -508,6 +565,9 @@ class Store:
             "add_requests": reqs,
             "vectors": vecs,
             "embed_cache": cached,
+            "superseded": conn.execute(
+                "SELECT COUNT(*) FROM units WHERE superseded_by IS NOT NULL"
+            ).fetchone()[0],
             "db_bytes": db_bytes,
         }
 

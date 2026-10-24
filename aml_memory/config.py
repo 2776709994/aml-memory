@@ -128,6 +128,14 @@ class Settings:
     # Update questions ("where do I live now?") hinge on the newer half of a
     # changed fact, and the higher-ranked half is often the stale one.
     dedupe_prefer: str = field(default_factory=lambda: _env("AML_DEDUPE_PREFER", "score"))
+    # A later turn that explicitly retracts an earlier one ("forget that I…", "I no
+    # longer…") marks the old row superseded instead of leaving both candidates for
+    # the reader to arbitrate. Off by default: the heuristic is lexical, and a wrong
+    # retirement is a silent answer loss, so it has to earn its place in an A/B.
+    forget_matching: bool = field(default_factory=lambda: _env_bool("AML_FORGET_MATCHING", False))
+    forget_threshold: float = field(
+        default_factory=lambda: _env_float("AML_FORGET_THRESHOLD", 0.45)
+    )
     # Counting and list questions are exhaustive by nature: capping them trims
     # evidence the answer needs.  The cap exists to keep noise down, not volume.
     exhaustive_cap: int = field(default_factory=lambda: _env_int("AML_EXHAUSTIVE_CAP", 40))
