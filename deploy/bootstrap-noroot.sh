@@ -17,7 +17,12 @@
 # AML_SRC (deploy from a local copy), SKIP_VERIFY=1.
 set -euo pipefail
 
-AML_TAG="${AML_TAG:-v1.6}"
+# The tag this script belongs to. Bumped with every release, and enforced by
+# scripts/audit_consistency.py: a stale default silently *downgrades* anyone who
+# re-runs the script without arguments, which is how v1.6 was nearly redeployed
+# over v1.7 on 2026-10-24.
+DEFAULT_TAG="v1.8"
+AML_TAG="${AML_TAG:-$DEFAULT_TAG}"
 AML_REPO="${AML_REPO:-https://github.com/2776709994/aml-memory}"
 AML_DIR="${AML_DIR:-$HOME/aml-memory}"
 AML_PORT="${AML_PORT:-8000}"
@@ -222,6 +227,16 @@ else
 fi
 [ -f "$AML_DIR/aml_memory/main.py" ] || die "$AML_DIR does not look like the aml-memory repo"
 [ -x "$AML_DIR/deploy/service-noroot.sh" ] || chmod +x "$AML_DIR/deploy/service-noroot.sh"
+
+# The release tag and the version the service reports have to agree, or every later
+# diagnosis is wrong: /health said 1.7.0 while the code was v1.8, and the deploy agent
+# spent a round proving the four download sources agreed. Cheap to check, so check it.
+SRC_VERSION="$(sed -n 's/^VERSION = "\([^"]*\)".*/\1/p' "$AML_DIR/aml_memory/main.py" | head -1)"
+TAG_VERSION="${AML_TAG#v}"
+if [ -n "$SRC_VERSION" ] && [ "${SRC_VERSION#"$TAG_VERSION"}" = "$SRC_VERSION" ]; then
+  warn "release mismatch: $AML_TAG ships VERSION=$SRC_VERSION — /health will not report $TAG_VERSION."
+  warn "the code is whatever $AML_TAG contains; trust 'git describe --tags', not the version string"
+fi
 
 # ---------------------------------------------------------------------------
 say "Python environment"

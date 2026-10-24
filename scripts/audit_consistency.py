@@ -112,5 +112,42 @@ for fname, claimed in checks:
     if claimed not in readme:
         issues.append(f"{claimed} (from runs/{fname}) no longer appears in README.md")
 
+# The release tag, the version the service reports, and the tag the deploy script
+# defaults to must agree. A stale default silently downgrades a re-run; a stale
+# VERSION makes every later diagnosis wrong (v1.8 shipped as "1.7.0" on 2026-10-24).
+import subprocess
+
+
+def latest_tag() -> str | None:
+    try:
+        out = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=ROOT, capture_output=True, text=True, timeout=20, check=False,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    tag = (out.stdout or "").strip()
+    return tag or None
+
+
+main_py = (ROOT / "aml_memory" / "main.py").read_text(encoding="utf-8")
+version_match = re.search(r'^VERSION = "([^"]+)"', main_py, re.M)
+version = version_match.group(1) if version_match else None
+tag = latest_tag()
+if version and tag:
+    if not version.startswith(tag.lstrip("v")):
+        issues.append(f"aml_memory/main.py VERSION={version} does not match the newest tag {tag}")
+
+for script in ("bootstrap.sh", "bootstrap-noroot.sh"):
+    path = ROOT / "deploy" / script
+    if not path.exists():
+        continue
+    text = path.read_text(encoding="utf-8")
+    default = re.search(r'DEFAULT_TAG="([^"]+)"', text)
+    if not default:
+        issues.append(f"deploy/{script} has no DEFAULT_TAG (a stale AML_TAG default downgrades re-runs)")
+    elif tag and default.group(1) != tag:
+        issues.append(f"deploy/{script} defaults to {default.group(1)} but the newest tag is {tag}")
+
 print("\n".join(f"  - {item}" for item in issues) if issues else "no inconsistencies found")
 print(f"\n{len(issues)} issue(s)")

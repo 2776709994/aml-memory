@@ -1,0 +1,13 @@
+release: stop shipping a stale VERSION and a stale default tag
+
+v1.8 was tagged with VERSION = "1.7.0" in aml_memory/main.py, so /health
+reported 1.7.0 while the code was v1.8, and the deploy agent spent a round
+proving that four download sources agreed. bootstrap*.sh also still defaulted
+to AML_TAG=v1.6, which meant a no-argument re-run would silently downgrade a
+deployment.
+
+- VERSION -> 1.8.2
+- both bootstraps carry DEFAULT_TAG=v1.8 and warn when the requested tag and
+  the version inside it disagree
+- scripts/audit_consistency.py now fails when VERSION or DEFAULT_TAG drift from
+  the newest git tag, so this cannot recur unnoticed
