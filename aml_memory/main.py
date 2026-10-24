@@ -31,7 +31,7 @@ from .rerank import Reranker
 from .retrieve import Retriever
 from .store import Store
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 LOG = logging.getLogger("aml")
 logging.basicConfig(
     level=os.environ.get("AML_LOG_LEVEL", "INFO").upper(),
@@ -282,6 +282,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.log_prompts and items:
             LOG.info("search payload user=%s items=%s", user_id, [(item["id"], item["score"]) for item in items[:10]])
         return {"data": items}
+
+    @app.post("/admin/backfill")
+    def backfill(limit: int = 500, _: None = Depends(verify_auth)) -> dict[str, Any]:
+        """Embed units that were stored while the embedding provider was down.
+
+        Only the Add path degrades; this repairs the hole afterwards.  Batched so a
+        large backlog cannot exceed the provider's per-request token limit.
+        """
+        batch = max(1, min(int(limit or 500), 2000))
+        rows = store.units_missing_vectors(batch)
+        if not rows:
+            return {"embedded": 0, "remaining": 0}
+        try:
+            vectors = embedder.embed_documents([text for _, text in rows])
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=f"embedding still failing: {exc}") from exc
+        written = store.set_unit_vectors(settings.embed_model, list(zip([uid for uid, _ in rows], vectors)))
+        return {"embedded": written, "remaining": store.count_units_missing_vectors()}
 
     @app.get("/admin/stats")
     def stats(_: None = Depends(verify_auth)) -> dict[str, Any]:

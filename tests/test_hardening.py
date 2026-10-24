@@ -190,6 +190,47 @@ def test_a_failed_embedding_still_persists_the_turn(tmp_path, monkeypatch):
         assert stats["embed_failures"]["add"] >= 1
 
 
+def test_a_backfill_embeds_the_turns_stored_during_an_outage(tmp_path, monkeypatch):
+    """Turns stored without a vector are BM25-only until the provider returns; the
+    backfill has to give them vectors and make the dense channel see them again."""
+    from fastapi.testclient import TestClient
+
+    settings, main = _fresh_modules(tmp_path, monkeypatch)
+    app = main.create_app(settings)
+    with TestClient(app) as client:
+        embedder = app.state.embedder
+        original = embedder.embed_documents
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("embedding HTTP 403: AccessDenied.Unpurchased")
+
+        monkeypatch.setattr(embedder, "embed_documents", boom)
+        client.post(
+            "/add",
+            json={
+                "request_id": "req-outage",
+                "user_id": "u2",
+                "session_id": "s1",
+                "messages": [
+                    {"role": "user", "content": "User: my sister adopted a greyhound named Pepper.",
+                     "timestamp": 1_690_000_000_000}
+                ],
+            },
+        )
+        assert app.state.store.count_units_missing_vectors() == 1
+
+        # the provider comes back
+        monkeypatch.setattr(embedder, "embed_documents", original)
+        result = client.post("/admin/backfill", params={"limit": 50}).json()
+        assert result["embedded"] == 1, result
+        assert result["remaining"] == 0, result
+        assert app.state.store.count_units_missing_vectors() == 0
+
+        found = client.post("/search", json={"query": "greyhound named Pepper", "user_id": "u2", "top_k": 5})
+        assert found.status_code == 200
+        assert any("Pepper" in item["content"] for item in found.json()["data"])
+
+
 def test_vectors_are_stored_as_int8_and_still_rank_correctly(tmp_path, monkeypatch):
     """Storage cost per turn is dominated by the embedding: float16 at dim 1024 is
     2 KB and a Full run touches millions of turns. int8 keeps dim bytes and loses

@@ -421,6 +421,32 @@ that tells you a run is being served without reranking — check it before trust
 score. (Measured the hard way: a score that dropped ~10 points during a run turned out
 to be rerank timeouts caused by a shared API key under our own concurrent load.)
 
+### When the embedding provider goes away
+
+The embedding endpoint is the one hard external dependency, and it does go away: on
+2026-10-24 `text-embedding-v4` started answering `403 AccessDenied.Unpurchased` on a key
+that had worked all morning, and every Add returned 500 within minutes.
+
+An Add now **never** fails because of the provider. The turn is persisted without a
+vector, stays reachable through BM25, and the outage is counted:
+
+```
+POST /add            -> 200 {"success": true, ...}      # units stored, 0 vectors
+POST /search         -> 200 [ ... BM25 hits ... ]        # degraded, not broken
+GET  /admin/stats    -> {"embed_failures": {"add": 3, "search": 0}, ...}
+```
+
+Two things to do when the provider is back: repair the hole and check the counters.
+
+```
+.venv/bin/python scripts/backfill_vectors.py --dry-run   # how many turns are BM25-only
+.venv/bin/python scripts/backfill_vectors.py             # embed them, batch by batch
+```
+
+The same backfill is available over HTTP as `POST /admin/backfill?limit=500` (auth
+required) and returns `{"embedded": n, "remaining": n}`. It is safe while the service is
+running: it takes the Add write lock and invalidates the affected user indexes.
+
 ---
 
 ## 8. Repository layout

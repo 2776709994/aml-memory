@@ -306,6 +306,65 @@ class Store:
                 out[row["hash"]] = _blob_to_vec(row["vec"], row["dim"], row["scale"])
         return out
 
+    # ----------------------------------------------------------------- backfill
+    def units_missing_vectors(self, limit: int = 500) -> list[tuple[str, str]]:
+        """Units whose embedding never made it into the database.
+
+        A turn is stored without a vector when the provider is down (see the Add
+        handler); those rows stay retrievable through BM25 only.  This is what a
+        backfill run has to repair once the provider comes back.
+        """
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT u.id, u.text FROM units u"
+            " LEFT JOIN vectors v ON v.unit_id = u.id"
+            " WHERE v.unit_id IS NULL ORDER BY u.user_id, u.seq LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return [(row["id"], row["text"]) for row in rows]
+
+    def count_units_missing_vectors(self) -> int:
+        conn = self._conn()
+        row = conn.execute(
+            "SELECT COUNT(*) FROM units u LEFT JOIN vectors v ON v.unit_id = u.id"
+            " WHERE v.unit_id IS NULL"
+        ).fetchone()
+        return int(row[0]) if row else 0
+
+    def set_unit_vectors(
+        self, model: str, items: Sequence[tuple[str, np.ndarray]]
+    ) -> int:
+        """Attach vectors to already-stored units and invalidate their user indexes."""
+        if not items:
+            return 0
+        written = 0
+        with self._write_lock:
+            conn = self._conn()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                payload = []
+                for unit_id, vec in items:
+                    if vec is None:
+                        continue
+                    blob, scale = _vec_to_blob(vec)
+                    payload.append((unit_id, model, int(vec.shape[0]), blob, scale))
+                if payload:
+                    conn.executemany(
+                        "INSERT OR REPLACE INTO vectors(unit_id,model,dim,vec,scale)"
+                        " VALUES (?,?,?,?,?)",
+                        payload,
+                    )
+                    written = len(payload)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        if written:
+            with self._cache_lock:
+                self._indexes.clear()
+                self._versions = {key: value + 1 for key, value in self._versions.items()}
+        return written
+
     # -------------------------------------------------------------------- index
     def user_index(self, user_id: str) -> UserIndex:
         with self._cache_lock:
