@@ -208,6 +208,7 @@ deploy/service-noroot.sh stop && tar czf "$HOME/aml-backup-$(date +%F).tgz" -C "
 
 # 没有 cron 也没有 systemd 时：让外层看护（你自己的巡检、heartbeat 之类）每次调这个
 deploy/watchdog.sh                   # 健康就不动手；API 挂了自动 restart，隧道掉了自动拉起；退出码 0=正常 1=仍然坏
+                                     # 另外会在日志里报警：磁盘 <2 GB、embedding 失败在累积、重排一直在 fallback
 
 # 换（轮换）嵌入/重排 key：显式传的值会覆盖 .env，其余配置与数据都不动
 EMBED_API_KEY=sk-新key bash /tmp/aml-bootstrap-noroot.sh

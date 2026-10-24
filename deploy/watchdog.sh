@@ -48,4 +48,25 @@ if [ -n "${FREE_MB:-}" ] && [ "$FREE_MB" -lt 2048 ] 2>/dev/null; then
   echo "$STAMP WARNING low disk: ${FREE_MB} MB free on the data volume"
 fi
 
+# An embedding outage is silent from the outside: Adds still return 200, they just
+# store turns without vectors, and every search quietly loses its dense channel.
+# The counter is the only signal, so surface it here.
+TOKEN="$(env_get AML_API_KEY)"
+if [ -n "$TOKEN" ]; then
+  STATS="$(curl -fsS --max-time 15 -H "Authorization: Bearer $TOKEN" \
+           "http://127.0.0.1:$PORT/admin/stats" 2>/dev/null || true)"
+  case "$STATS" in
+    *'"embed_failures"'*)
+      case "$STATS" in
+        *'"add": 0'*) : ;;
+        *) echo "$STAMP WARNING embedding failures accumulating: ${STATS:0:240}" ;;
+      esac
+      ;;
+  esac
+  case "$STATS" in
+    *'"fallbacks": 0'*) : ;;
+    *'"fallbacks"'*) echo "$STAMP WARNING reranker is falling back (searches are in fused order): ${STATS:0:240}" ;;
+  esac
+fi
+
 exit "$rc"
