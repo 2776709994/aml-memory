@@ -270,3 +270,58 @@ def test_vectors_are_stored_as_int8_and_still_rank_correctly(tmp_path, monkeypat
     legacy = vec.astype(np.float16).tobytes()
     legacy_back = store_module._blob_to_vec(legacy, 1024, 1.0)
     assert np.allclose(legacy_back, vec, atol=2e-3)
+
+def test_the_lexical_index_is_built_once_per_user_and_bounded_by_rows(tmp_path, monkeypatch):
+    """Two failure modes of the per-user BM25 cache, both seen in the vector cache:
+
+    1. a burst of first searches must not tokenise the same conversation N times;
+    2. the budget must be document-based, because posting lists for 100k turns run
+       to ~2.5 GB, so an entry-count cap cannot bound resident memory.
+    """
+    settings, _ = _fresh_modules(tmp_path, monkeypatch, AML_BM25_CACHE_VECTORS=3)
+    from types import SimpleNamespace
+
+    from aml_memory import bm25 as bm25_module
+    from aml_memory.embeddings import Embedder
+    from aml_memory.llm import LLM
+    from aml_memory.rerank import Reranker
+    from aml_memory.retrieve import Retriever
+    from aml_memory.store import Store
+
+    calls = []
+    original_build = bm25_module.BM25.build.__func__
+
+    def counting_build(cls, docs):
+        calls.append(len(docs))
+        return original_build(cls, docs)
+
+    store = Store(tmp_path / "bm25.sqlite3", embed_model="hash")
+    retriever = Retriever(settings, store, Embedder(settings, store), Reranker(settings), LLM(settings))
+    monkeypatch.setattr(bm25_module.BM25, "build", classmethod(counting_build))
+
+    index = SimpleNamespace(
+        user_id="u1",
+        version=1,
+        units=[SimpleNamespace(text=f"note {i} about pottery") for i in range(4)],
+    )
+
+    results = []
+
+    def hit():
+        results.append(retriever._bm25_for(index))
+
+    threads = [threading.Thread(target=hit) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(results) == 8 and all(result is not None for result in results)
+    assert len(calls) == 1, f"BM25 should be built once, built {len(calls)} times"
+
+    # a second user with 4 documents must evict the first, not sit next to it
+    other = SimpleNamespace(
+        user_id="u2", version=1, units=[SimpleNamespace(text=f"pepper {i}") for i in range(4)]
+    )
+    retriever._bm25_for(other)
+    assert set(retriever._bm25) == {("u2", 1)}, dict(retriever._bm25)
+    assert sum(retriever._bm25_docs.values()) == 4

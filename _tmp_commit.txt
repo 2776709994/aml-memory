@@ -1,10 +1,15 @@
-v1.9: /health reports the embedding pipeline, not just the process
+v1.10: bound the lexical index cache by documents, build it once per user
 
-During the 2026-10-24 outage the model was revoked, every Add silently degraded
-to text-only retrieval, and /health answered "ok" the whole time ? so the platform
-retried 32 times into a hole and the operator saw green.
+Same class of bug as the vector cache: the BM25 cache was capped by ENTRY count
+(64 conversations), while posting lists for 100k turns run to ~2.5 GB ? so a
+handful of big users could exhaust a 4 GB box no matter what the count said.
 
-- /health now carries "embedding": ok | failing | unknown, updated by the embedding
-  call itself (no I/O, no config leak)
-- the degradation test asserts failing-then-recovered, so the flag cannot rot
-- VERSION 1.8.2 -> 1.9.0, both bootstraps default to v1.9
+- AML_BM25_CACHE_VECTORS (default 200k documents), LRU by use, never evicts the
+  user being served
+- one builder per (user, version): eight concurrent first searches used to
+  tokenise the same conversation eight times
+- test asserts build-once and document-budget eviction
+
+Measured on this laptop (single core, 260-char turns): BM25 build 0.9 s at 20k
+turns and 2.3 s at 50k; BM25 query 23 / 60 ms; six-variant dense scan over
+50k x 1024 is 42 ms ? so a cold first search costs ~3 s and steady state ~0.3 s.

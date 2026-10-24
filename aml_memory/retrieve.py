@@ -10,6 +10,7 @@ crowd out a distinct one.
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
@@ -91,8 +92,14 @@ class Retriever:
         self.embedder = embedder
         self.reranker = reranker
         self.analyzer = QueryAnalyzer(settings, llm)
-        self._bm25: dict[tuple[str, int], BM25] = {}
+        # Lexical index per (user, version).  Bounded by DOCUMENT COUNT, not by
+        # entry count: one 100k-turn conversation costs ~2.5 GB of posting lists, so
+        # a count cap of 64 could still exhaust a 4 GB box.  Same failure mode as the
+        # vector index cache, same fix.
+        self._bm25: OrderedDict[tuple[str, int], BM25] = OrderedDict()
+        self._bm25_docs: dict[tuple[str, int], int] = {}
         self._bm25_lock = threading.Lock()
+        self._bm25_builds: dict[tuple[str, int], threading.Lock] = {}
 
     # ------------------------------------------------------------------ entry
     def search(
@@ -161,17 +168,39 @@ class Retriever:
         key = (index.user_id, index.version)
         with self._bm25_lock:
             cached = self._bm25.get(key)
-        if cached is not None:
-            return cached
-        try:
-            built = BM25.build([unit.text for unit in index.units])
-        except Exception:
-            return None
-        with self._bm25_lock:
-            if len(self._bm25) > 64:
-                self._bm25.clear()
-            self._bm25[key] = built
-        return built
+            if cached is not None:
+                self._bm25.move_to_end(key)
+                return cached
+            # One builder per user: a burst of concurrent first searches would
+            # otherwise tokenise the same 100k turns once per thread.
+            build_lock = self._bm25_builds.setdefault(key, threading.Lock())
+        with build_lock:
+            with self._bm25_lock:
+                cached = self._bm25.get(key)
+                if cached is not None:
+                    self._bm25.move_to_end(key)
+                    return cached
+            try:
+                built = BM25.build([unit.text for unit in index.units])
+            except Exception:
+                return None
+            with self._bm25_lock:
+                self._bm25[key] = built
+                self._bm25_docs[key] = len(index.units)
+                self._evict_bm25_locked(key)
+            return built
+
+    def _evict_bm25_locked(self, keep: tuple[str, int]) -> None:
+        """Drop least-recently-used lexical indexes until the document budget holds."""
+        limit = max(1, int(self.settings.bm25_cache_rows))
+        while len(self._bm25) > 1:
+            total = sum(self._bm25_docs.values())
+            oldest = next(iter(self._bm25))
+            if total <= limit or oldest == keep:
+                break
+            self._bm25.pop(oldest, None)
+            self._bm25_docs.pop(oldest, None)
+            self._bm25_builds.pop(oldest, None)
 
     def _rerank(self, query: str, index: UserIndex, scores: dict[int, float]) -> dict[int, float]:
         if not self.reranker.available:
