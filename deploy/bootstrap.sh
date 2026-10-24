@@ -19,7 +19,7 @@ set -euo pipefail
 
 AML_DOMAIN="${AML_DOMAIN:-}"
 EMBED_API_KEY="${EMBED_API_KEY:-}"
-DEFAULT_TAG="v1.9"
+DEFAULT_TAG="v1.10"
 AML_TAG="${AML_TAG:-$DEFAULT_TAG}"
 AML_REPO="${AML_REPO:-https://github.com/2776709994/aml-memory.git}"
 AML_DIR="${AML_DIR:-/opt/aml-memory}"
