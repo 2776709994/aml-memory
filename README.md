@@ -483,6 +483,7 @@ aml-memory/
 │  ├─ bootstrap-noroot.sh # same, without Docker or root (Cloudflare Tunnel)
 │  ├─ service-noroot.sh   # start/stop/restart/status/logs/url supervisor
 │  ├─ watchdog.sh         # health check + restart, for hosts with no cron
+│  ├─ post-outage-recovery.sh  # after a provider outage: probe, backfill, self-check
 │  └─ AGENT_DEPLOY_NOROOT.md
 └─ Dockerfile
 ```

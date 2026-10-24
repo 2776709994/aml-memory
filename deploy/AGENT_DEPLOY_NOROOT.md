@@ -213,6 +213,10 @@ deploy/watchdog.sh                   # 健康就不动手；API 挂了自动 res
 EMBED_API_KEY=sk-新key bash /tmp/aml-bootstrap-noroot.sh
 # 若新 key 不是这个工作区（MaaS）的，还要同时指到官方地址：
 # EMBED_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 EMBED_API_KEY=sk-新key bash /tmp/aml-bootstrap-noroot.sh
+
+# 供应恢复后（欠费充好 / 换到有权限的 key）：一条命令把缺的向量补齐并自检
+deploy/post-outage-recovery.sh              # 探测 → 统计缺向量条数 → 分批回填 → 契约自检
+deploy/post-outage-recovery.sh --dry-run    # 只看还剩多少条没有向量，不动数据
 ```
 
 > 轮换 key 时脚本会先拿新 key 真打一次 `text-embedding-v4`（和一次 `gte-rerank-v2`），401 就当场停下，
