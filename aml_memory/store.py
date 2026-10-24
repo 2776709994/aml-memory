@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sqlite3
 import threading
 import time
@@ -559,6 +560,15 @@ class Store:
                 db_bytes += Path(self.db_path + suffix).stat().st_size
             except OSError:
                 pass
+        # Disk head-room matters as much as the file size: a Full run can add tens of
+        # gigabytes over days, and the only cheap way to watch that from outside is to
+        # ship the free space in the same response the operator already polls.
+        disk_free = disk_total = 0
+        try:
+            usage = shutil.disk_usage(str(Path(self.db_path).parent))
+            disk_free, disk_total = int(usage.free), int(usage.total)
+        except OSError:
+            pass
         return {
             "units": units,
             "users": users,
@@ -569,6 +579,8 @@ class Store:
                 "SELECT COUNT(*) FROM units WHERE superseded_by IS NOT NULL"
             ).fetchone()[0],
             "db_bytes": db_bytes,
+            "disk_free_bytes": disk_free,
+            "disk_total_bytes": disk_total,
         }
 
 

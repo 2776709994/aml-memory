@@ -188,6 +188,10 @@ def test_a_failed_embedding_still_persists_the_turn(tmp_path, monkeypatch):
 
         stats = client.get("/admin/stats").json()
         assert stats["embed_failures"]["add"] >= 1
+        # The operator watches a Full run through this one response, so the disk
+        # head-room has to be in it: db_bytes alone cannot say "you have two days left".
+        assert stats["disk_free_bytes"] > 0
+        assert stats["disk_total_bytes"] >= stats["disk_free_bytes"]
 
         # /health has to expose the degradation: on 2026-10-24 the provider was
         # revoked, every Add fell back to text-only, and health still said "ok" —
