@@ -348,7 +348,37 @@ class Retriever:
                 break
             out.append(Block(ids=block.ids, content=content, score=block.score, position=block.position))
             spent += len(content)
+
+        out = self._append_recent_tail(index, out, spent, budget, top_k)
         return out[:top_k]
+
+    def _append_recent_tail(
+        self,
+        index: UserIndex,
+        out: list[Block],
+        spent: int,
+        budget: int,
+        top_k: int,
+    ) -> list[Block]:
+        """Append the newest turns at the END of the list, unranked.
+
+        Streaming evaluation asks about the conversation that is still arriving, and a
+        purely similarity-ranked list can miss "what did I just say" entirely.  Adding
+        the tail costs nothing where it does not help: it sits after every ranked item,
+        never displaces one, and the answer budget (≈117k tokens against our ≈15k) has
+        room.  Default 0 = off; raise it once a smoke run can measure the difference.
+        """
+        recent = int(self.settings.recent_tail)
+        if recent <= 0 or len(out) >= top_k:
+            return out
+        covered = {unit_id for block in out for unit_id in block.ids}
+        candidates = [unit for unit in index.units if unit.id not in covered][-recent:]
+        for unit in candidates:
+            if len(out) >= top_k or spent + len(unit.text) > budget:
+                break
+            out.append(Block(ids=[unit.id], content=unit.text, score=0.0, position=len(out)))
+            spent += len(unit.text)
+        return out
 
     def _merge_adjacent(self, index: UserIndex, selected: list[tuple[int, float]]) -> list[Block]:
         """Join consecutive turns into one memory block (cheaper, better context).

@@ -61,6 +61,9 @@ class Settings:
     # Lexical (BM25) index cache, bounded by DOCUMENT count: posting lists for
     # 100k turns of chat run to ~2.5 GB, so the budget is rows, not entries.
     bm25_cache_rows: int = field(default_factory=lambda: _env_int("AML_BM25_CACHE_VECTORS", 200_000))
+    # Newest turns appended after the ranked list, for mid-conversation ("streaming")
+    # questions. 0 = off: it never displaces a ranked item, only adds tail context.
+    recent_tail: int = field(default_factory=lambda: _env_int("AML_RECENT_TAIL", 0))
     # Vectors are stored as int8 (dim bytes/row), so 200k rows is ~200 MB and the
     # cache only ever covers recent text; a miss just costs one embedding call.
     embed_cache_rows: int = field(default_factory=lambda: _env_int("EMBED_CACHE_ROWS", 200_000))
