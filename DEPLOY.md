@@ -184,6 +184,23 @@ python3 scripts/verify_endpoint.py --base-url https://memory.example.com \
 先跑 **Smoke**（每小时 1 次、每 track 最多 30 次），确认 schema 全过；再排 **Full**。
 Full 期间服务版本会被冻结，别改代码、别升级依赖、别动 `.env` 里的检索参数。
 
+**点 Full 之前，先跑一次 Full 前置体检**（Full 每个 Key 实际只有 1 次机会，这份体检把能
+自证的部分都自证掉）：
+
+```bash
+cd /opt/aml-memory          # 或 ~/aml-memory
+.venv/bin/python scripts/preflight_full.py \
+  --base-url https://memory.example.com \
+  --token "$(grep '^AML_API_KEY=' .env | cut -d= -f2)" \
+  --concurrency 16 --add-samples 8 --search-samples 48
+```
+
+它比 `verify_endpoint.py` 多三段：**warm-up**（先发一条 Add，让 `health.embedding` 从
+`unknown` 变成 `ok`/`failing`）、**容量**（`units`/`vectors` 是否对齐、缺向量条数、`db_bytes`
+与 `embed_cache`、8 并发的检索 p95）、以及平台那 8 项 Full 门禁的逐项映射（哪项能自证、哪项
+在平台侧）。全部硬检查通过时 exit 0 并打印 `all hard checks passed`；`embedding` 段
+FAIL 就是供应商欠费/限流的直接证据，先去控制台处理，别点 Full。
+
 ## 7. 运维要点
 
 * **数据在命名卷 `aml-data` 里**（容器内 `/data/aml.sqlite3`）。备份：

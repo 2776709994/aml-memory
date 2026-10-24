@@ -126,6 +126,15 @@ TOKEN=$(grep '^AML_API_KEY=' "$HOME/aml-memory/.env" | cut -d= -f2-)
   --base-url https://memory.example.com --token "$TOKEN"
 ```
 
+跑 Full 之前再跑一次**前置体检**（多验容量、`health.embedding`、以及平台 8 项门禁的映射；
+全绿时 exit 0 打印 `all hard checks passed`）：
+
+```bash
+"$HOME/aml-memory/.venv/bin/python" "$HOME/aml-memory/scripts/preflight_full.py" \
+  --base-url https://memory.example.com --token "$TOKEN" \
+  --concurrency 16 --add-samples 8 --search-samples 48
+```
+
 ---
 
 ## 5. 停止线（到这里必须停，交回人类）
