@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -150,6 +151,10 @@ class Chat:
                     }, json=payload)
                 if response.status_code >= 500 or response.status_code == 429:
                     last = f"{response.status_code} {response.text[:200]}"
+                    # A shared relay answers 429 with a retry hint and expects the caller
+                    # to wait it out; ignoring that turns the whole measurement into noise
+                    # (a failed call is scored wrong).
+                    time.sleep(self._backoff(attempt, response))
                     continue
                 response.raise_for_status()
                 body = response.json()
@@ -160,8 +165,22 @@ class Chat:
                 return str((body.get("choices") or [{}])[0].get("message", {}).get("content") or "")
             except Exception as exc:  # noqa: BLE001
                 last = f"{type(exc).__name__}: {exc}"
+                time.sleep(min(30.0, 2.0 * (attempt + 1)))
         self.failures += 1
         return f"__ERROR__ {last}"
+
+    @staticmethod
+    def _backoff(attempt: int, response: "httpx.Response") -> float:
+        """Honour the server's hint, but never sleep longer than a minute."""
+        hint = 0.0
+        try:
+            body = response.json()
+            hint = float((body.get("error") or {}).get("retry_after") or 0.0)
+        except Exception:  # noqa: BLE001
+            hint = 0.0
+        if not hint:
+            hint = float(response.headers.get("retry-after") or 0.0)
+        return min(60.0, hint or (2.0 ** attempt))
 
 
 def score_one(chat_answer: Chat, chat_judge: Chat, row: dict) -> dict:
@@ -213,8 +232,10 @@ def main() -> None:
     parser.add_argument("--only-categories", default="", help="comma-separated subset, e.g. multihop,open_domain")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--concurrency", type=int, default=6)
-    parser.add_argument("--answer-model", default=os.environ.get("PROXY_ANSWER_MODEL", "qwen-flash"))
-    parser.add_argument("--judge-model", default=os.environ.get("PROXY_JUDGE_MODEL", "qwen-flash"))
+    parser.add_argument("--answer-model", default=None,
+                        help="default: PROXY_ANSWER_MODEL from .env, else qwen-flash")
+    parser.add_argument("--judge-model", default=None,
+                        help="default: PROXY_JUDGE_MODEL from .env, else the answer model")
     # The judge is the expensive half of this harness: a full 1 382-question suite judged
     # by a max-tier model is real money, and this is only ever used to compare
     # configurations against each other.  Cheap judge + a hard token budget by default;
@@ -231,10 +252,19 @@ def main() -> None:
     from aml_memory.config import load_settings
 
     settings = load_settings()
-    base = settings.embed_base_url
-    key = settings.embed_api_key
+    # The reader proxy is a local measuring instrument, never part of the submitted
+    # service, so it may talk to any OpenAI-compatible endpoint. PROXY_* wins so a free
+    # relay can stand in for the metered provider.
+    base = os.environ.get("PROXY_BASE_URL") or settings.embed_base_url
+    key = os.environ.get("PROXY_API_KEY") or settings.embed_api_key
     if not (base and key):
-        raise SystemExit("no EMBED_BASE_URL / EMBED_API_KEY configured")
+        raise SystemExit("no PROXY_BASE_URL / PROXY_API_KEY (or EMBED_*) configured")
+    # Resolve model names *after* .env is loaded: argparse defaults run before it, so a
+    # PROXY_*_MODEL in .env would otherwise be silently ignored and every call 400.
+    args.answer_model = (args.answer_model or os.environ.get("PROXY_ANSWER_MODEL")
+                         or "qwen-flash")
+    args.judge_model = (args.judge_model or os.environ.get("PROXY_JUDGE_MODEL")
+                        or args.answer_model)
 
     data = json.loads(Path(args.run).read_text(encoding="utf-8"))
     rows = [r for r in data["results"] if r.get("contents")]
@@ -275,10 +305,11 @@ def main() -> None:
         rows = picked
     if args.limit:
         rows = rows[: args.limit]
-    print(f"scoring {len(rows)} questions with answer={args.answer_model} judge={args.judge_model}", flush=True)
+    print(f"scoring {len(rows)} questions with answer={args.answer_model} judge={args.judge_model} "
+          f"@ {base}", flush=True)
 
-    chat_answer = Chat(base, key, args.answer_model)
-    chat_judge = Chat(base, key, args.judge_model)
+    chat_answer = Chat(base, key, args.answer_model, retries=6)
+    chat_judge = Chat(base, key, args.judge_model, retries=6)
 
     out: list[dict] = [None] * len(rows)  # type: ignore[list-item]
 
@@ -324,8 +355,12 @@ def main() -> None:
     if skipped:
         print(f"budget stop: {skipped} question(s) skipped after reaching "
               f"--budget-tokens={args.budget_tokens:,}")
+    errors = [item for item in out if item and item["label"] == "ERROR"]
+    if errors:
+        print(f"{len(errors)} call failure(s); first: {errors[0]['generated'][:200]}")
     spent = (chat_answer.prompt_tokens + chat_judge.prompt_tokens) / 1e6
-    print(f"~{spent:.2f}M prompt tokens ≈ ¥{spent * _rate(args.answer_model) + spent * _rate(args.judge_model):.2f} "
+    print(f"~{spent:.2f}M prompt tokens ~= CNY "
+          f"{spent * _rate(args.answer_model) + spent * _rate(args.judge_model):.2f} "
           f"at list price (answer {args.answer_model} + judge {args.judge_model})")
 
     if args.out:
