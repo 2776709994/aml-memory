@@ -163,6 +163,7 @@ TOKEN=$(grep '^AML_API_KEY=' "$HOME/aml-memory/.env" | cut -d= -f2-)
 | `no healthy answer on 127.0.0.1:8000` | 服务启动失败 | 同上；注意端口是否被占用（换 `AML_PORT`） |
 | 自检某项 FAIL | 版本不对或环境被改 | `git -C $HOME/aml-memory describe --tags` 必须是 `v1.6`；否则 `git fetch --tags && git checkout v1.6` 后重跑 |
 | `the embedding key was rejected (HTTP 401)` | 密钥失效/填错/已过期 | 到 Model Studio 控制台重新签发一个**长期** key（不要用临时 workspace key），`EMBED_API_KEY=sk-... bash /tmp/aml-bootstrap-noroot.sh` 重跑即可（`.env` 已存在时会保留 token，只改嵌入部分需手工 `sed` 或删 `.env` 重生成——注意删 `.env` 会换新 `AML_API_KEY`，榜单里也要同步改） |
+| 升级时预检报 `the embedding key was rejected (HTTP 403)`，但只想先把**代码**升上去 | 模型临时断供（欠费/未开通），与代码无关 | 已有安装会自动降级为警告；全新安装可加 `SKIP_KEY_CHECK=1`。升级后 Add 仍返回 200（文本落库但暂时没有向量，检索退回 BM25）；等供应恢复后跑 `scripts/backfill_vectors.py` 补向量 |
 | `/add` 返回 500，日志里是 `embedding HTTP 401` | 部署完成之后 key 才失效（本方案唯一的强外部依赖） | 换新 key：`sed -i 's|^EMBED_API_KEY=.*|EMBED_API_KEY=sk-新key|' ~/aml-memory/.env && deploy/service-noroot.sh restart`；**Full 开始前务必确认 key 能长期使用**，跑到一半失效等于浪费一次机会 |
 | 服务被系统杀掉（OOM） | 内存不足 | `.env` 里设 `AML_INDEX_CACHE_VECTORS=30000`、`AML_CANDIDATE_DEPTH=300` 后 `deploy/service-noroot.sh restart`；或换更大内存的机器 |
 | 机器重启后服务没了 | 没有 systemd 单元 | 见附录 A：有 cron 就 `@reboot`，没有就让外层巡检每几分钟调一次 `deploy/watchdog.sh`（它只在真挂时动手） |

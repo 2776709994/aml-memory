@@ -71,6 +71,9 @@ OVERRIDE_KEYS="${OVERRIDE_KEYS#,}"
 AML_SRC="${AML_SRC:-}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-}"
 SKIP_VERIFY="${SKIP_VERIFY:-0}"
+# A provider outage must not block a *code* upgrade: on an existing install the probe
+# downgrades to a warning, and SKIP_KEY_CHECK=1 forces that even on a fresh one.
+SKIP_KEY_CHECK="${SKIP_KEY_CHECK:-0}"
 LOG_DIR="$AML_DIR/logs"
 
 if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; N=$'\033[0m'
@@ -117,7 +120,12 @@ case "$EMBED_PROVIDER" in
     case "$emb_probe" in
       200) ok "embedding endpoint answered 200" ;;
       401|403)
-        die "the embedding key was rejected (HTTP $emb_probe). Issue a fresh long-lived key in the Model Studio console; a key that expires mid-run would zero the whole evaluation."
+        if [ "$SKIP_KEY_CHECK" = "1" ] || [ -f "$AML_DIR/.env" ]; then
+          warn "the embedding key was rejected (HTTP $emb_probe): continuing, because this is an upgrade."
+          warn "Adds will store text without vectors (BM25-only) until model access is restored — set the key, then run scripts/backfill_vectors.py"
+        else
+          die "the embedding key was rejected (HTTP $emb_probe). Issue a fresh long-lived key in the Model Studio console; a key that expires mid-run would zero the whole evaluation."
+        fi
         ;;
       000) warn "could not reach $EMBED_BASE_URL from this host — continuing, but a full run needs it" ;;
       *)   warn "embedding probe returned HTTP $emb_probe — continuing, but check the key/model/dimensions" ;;
