@@ -189,6 +189,26 @@ def test_a_failed_embedding_still_persists_the_turn(tmp_path, monkeypatch):
         stats = client.get("/admin/stats").json()
         assert stats["embed_failures"]["add"] >= 1
 
+        # /health has to expose the degradation: on 2026-10-24 the provider was
+        # revoked, every Add fell back to text-only, and health still said "ok" —
+        # the platform retried into a hole for hours while the operator saw green.
+        health = client.get("/health").json()
+        assert health["status"] == "ok"  # the process is fine …
+        assert health["embedding"] == "failing"  # … but the pipeline is not
+
+        # and it has to recover by itself once the provider answers again
+        monkeypatch.undo()
+        client.post(
+            "/add",
+            json={
+                "request_id": "req-recovered",
+                "user_id": "u1",
+                "session_id": "s1",
+                "messages": [{"role": "user", "content": "User: I bought a cactus.", "timestamp": 1_690_000_100_000}],
+            },
+        )
+        assert client.get("/health").json()["embedding"] == "ok"
+
 
 def test_a_backfill_embeds_the_turns_stored_during_an_outage(tmp_path, monkeypatch):
     """Turns stored without a vector are BM25-only until the provider returns; the

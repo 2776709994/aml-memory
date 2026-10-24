@@ -1,13 +1,10 @@
-release: stop shipping a stale VERSION and a stale default tag
+v1.9: /health reports the embedding pipeline, not just the process
 
-v1.8 was tagged with VERSION = "1.7.0" in aml_memory/main.py, so /health
-reported 1.7.0 while the code was v1.8, and the deploy agent spent a round
-proving that four download sources agreed. bootstrap*.sh also still defaulted
-to AML_TAG=v1.6, which meant a no-argument re-run would silently downgrade a
-deployment.
+During the 2026-10-24 outage the model was revoked, every Add silently degraded
+to text-only retrieval, and /health answered "ok" the whole time ? so the platform
+retried 32 times into a hole and the operator saw green.
 
-- VERSION -> 1.8.2
-- both bootstraps carry DEFAULT_TAG=v1.8 and warn when the requested tag and
-  the version inside it disagree
-- scripts/audit_consistency.py now fails when VERSION or DEFAULT_TAG drift from
-  the newest git tag, so this cannot recur unnoticed
+- /health now carries "embedding": ok | failing | unknown, updated by the embedding
+  call itself (no I/O, no config leak)
+- the degradation test asserts failing-then-recovered, so the flag cannot rot
+- VERSION 1.8.2 -> 1.9.0, both bootstraps default to v1.9

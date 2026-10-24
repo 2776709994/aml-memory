@@ -32,7 +32,7 @@ from .rerank import Reranker
 from .retrieve import Retriever
 from .store import Store
 
-VERSION = "1.8.2"
+VERSION = "1.9.0"
 LOG = logging.getLogger("aml")
 logging.basicConfig(
     level=os.environ.get("AML_LOG_LEVEL", "INFO").upper(),
@@ -113,6 +113,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # silently degraded ranking.
     embed_failures = {"add": 0, "search": 0}
     embed_failure_lock = threading.Lock()
+    # "unknown" until the first embedding call; then "ok" or "failing". Reported by
+    # /health so an external monitor can tell a dead provider from a dead process.
+    embed_state = {"value": "unknown"}
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -175,7 +178,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health() -> dict[str, Any]:
         # Async on purpose: it must answer even when every worker thread is busy
         # inside a long Add, otherwise the container healthcheck restarts us.
-        return {"status": "ok", "service": "aml-memory", "version": VERSION}
+        #
+        # `embedding` is the one line that would have caught the 2026-10-24 outage
+        # from outside: the model was revoked (403), every Add degraded to text-only,
+        # and /health still said "ok" — so the platform retried into a hole for hours
+        # while the operator saw green. Cost: no I/O, one in-memory string.
+        return {
+            "status": "ok",
+            "service": "aml-memory",
+            "version": VERSION,
+            "embedding": embed_state["value"],
+        }
 
     @app.get("/")
     async def root() -> dict[str, Any]:
@@ -228,9 +241,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     vectors: list[Any] = (
                         embedder.embed_documents([unit.text for unit in units]) if units else []
                     )
+                    embed_state["value"] = "ok"
                 except Exception as exc:  # noqa: BLE001
                     with embed_failure_lock:
                         embed_failures["add"] += 1
+                    embed_state["value"] = "failing"
                     LOG.error(
                         "add %s: embedding failed, storing %d unit(s) for lexical retrieval: %s",
                         request_id, len(units), exc,

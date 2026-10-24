@@ -146,8 +146,15 @@ signal.
 
 ### `GET /health`
 
-`200 {"status": "ok", "service": "aml-memory", "version": "…"}` — unauthenticated by
-design (the rules require a public health check) and leaks no configuration.
+`200 {"status": "ok", "service": "aml-memory", "version": "…", "embedding": "ok"}` —
+unauthenticated by design (the rules require a public health check) and leaks no
+configuration.
+
+`embedding` is `ok` / `failing` / `unknown`. It is the one field that distinguishes a
+dead process from a dead provider: on 2026-10-24 the embedding model was revoked, every
+Add degraded to text-only, and a health check that only looked at the process stayed
+green while the platform retried into the hole. The flag costs no I/O — it is a string
+updated by the embedding call itself.
 
 ### Auth
 

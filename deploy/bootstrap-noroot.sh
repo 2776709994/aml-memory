@@ -21,7 +21,7 @@ set -euo pipefail
 # scripts/audit_consistency.py: a stale default silently *downgrades* anyone who
 # re-runs the script without arguments, which is how v1.6 was nearly redeployed
 # over v1.7 on 2026-10-24.
-DEFAULT_TAG="v1.8"
+DEFAULT_TAG="v1.9"
 AML_TAG="${AML_TAG:-$DEFAULT_TAG}"
 AML_REPO="${AML_REPO:-https://github.com/2776709994/aml-memory}"
 AML_DIR="${AML_DIR:-$HOME/aml-memory}"
