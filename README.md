@@ -390,6 +390,7 @@ The ones that actually change behaviour:
 | `AML_TOTAL_CHAR_BUDGET` | 120000 | total characters handed to the reader |
 | `AML_SCORE_FLOOR` | 0.0 | 0 keeps every candidate up to `top_k` |
 | `AML_INDEX_CACHE_COUNT` / `AML_INDEX_CACHE_VECTORS` | 24 / 120000 | per-user matrix cache, bounded by users **and** rows (~470 MB of matrix at 1024-d) |
+| `AML_BM25_CACHE_VECTORS` | 200000 | per-user lexical index cache, bounded by documents (~2.5 GB of posting lists at 100k turns, so this is a ceiling rather than a knob) |
 | `EMBED_CACHE_MB` / `EMBED_CACHE_SIZE` | 256 / 100000 | in-process embedding cache, float16, byte-bounded |
 | EMBED_CACHE_ROWS | 200000 | cap on the persistent embedding cache table (~200 MB at dim 1024; oldest rows are dropped, 0 = unlimited) |
 | EMBED_CACHE_DOCS | 0 | cache ingested turn texts too; off because `vectors` already holds them |
