@@ -130,6 +130,11 @@ class Reranker:
             "input": {"query": query, "documents": list(docs)},
             "parameters": {"return_documents": False, "top_n": len(docs)},
         }
+        # Qwen3-family rerankers read this as the task definition; the older
+        # gte-rerank-v2 ignores the field, so sending it is safe for both.
+        instruct = getattr(self.settings, "rerank_instruct", "")
+        if instruct:
+            payload["parameters"]["instruct"] = instruct
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.settings.rerank_api_key}",

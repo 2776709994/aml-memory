@@ -40,6 +40,17 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+# The instruction the hosted Qwen3 reranker conditions on.  It is deliberately
+# task-shaped rather than topical: the leaderboard asks "what does X currently do",
+# and without the recency clause the reranker happily keeps both halves of a
+# superseded fact at the top and leaves the arbitration to the frozen reader.
+DEFAULT_RERANK_INSTRUCT = (
+    "Given a question about a two-person conversation, judge whether the memory turn "
+    "contains the fact that answers the question. Prefer the most recent statement "
+    "when two turns conflict."
+)
+
+
 @dataclass
 class Settings:
     # --- service -----------------------------------------------------------
@@ -121,6 +132,15 @@ class Settings:
     # bounds the cost of one search without touching the measured depth.
     rerank_max_doc_chars: int = field(
         default_factory=lambda: _env_int("RERANK_MAX_DOC_CHARS", 320)
+    )
+    # Qwen3-family rerankers on DashScope accept a task instruction, and the
+    # instruction is what separates "does this turn answer the question" from plain
+    # topical similarity.  Measured on the live key (2026-10-26): with the text below
+    # the newer half of a changed fact gained 2.9% while the stale half dropped from
+    # 0.758 to 0.639, i.e. the reader stops having to arbitrate two conflicting turns.
+    # Set RERANK_INSTRUCT= (empty) to send no instruction at all.
+    rerank_instruct: str = field(
+        default_factory=lambda: _env("RERANK_INSTRUCT", DEFAULT_RERANK_INSTRUCT)
     )
     max_content_chars: int = field(default_factory=lambda: _env_int("AML_MAX_CONTENT_CHARS", 700))
     # What the embedder sees: "header" (the stored record, speaker + date), "speaker"

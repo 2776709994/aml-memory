@@ -86,3 +86,26 @@ def test_ranked_scores_are_reordered_by_index_not_by_row(monkeypatch):
                             "https://api.siliconflow.cn/v1/rerank", body)
     scores = reranker.score("q", ["a", "b", "c", "d"])
     assert scores == [0.1, 0.8, 0.0, 0.9]
+
+
+def test_dashscope_sends_the_task_instruction(monkeypatch):
+    # Qwen3 rerankers condition on this text; dropping it silently degrades the
+    # ranking back to topical similarity, so the payload has to carry it.
+    monkeypatch.delenv("RERANK_INSTRUCT", raising=False)
+    body = {"output": {"results": [{"index": 0, "relevance_score": 0.5}]}}
+    reranker, client = _reranker(monkeypatch, "dashscope", "qwen3.7-text-rerank",
+                                 "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+                                 body)
+    reranker.score("q", ["a"])
+    instruct = client.calls[0]["json"]["parameters"]["instruct"]
+    assert "most recent statement" in instruct
+
+
+def test_empty_rerank_instruct_sends_no_parameter(monkeypatch):
+    monkeypatch.setenv("RERANK_INSTRUCT", "")
+    body = {"output": {"results": [{"index": 0, "relevance_score": 0.5}]}}
+    reranker, client = _reranker(monkeypatch, "dashscope", "gte-rerank-v2",
+                                 "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+                                 body)
+    reranker.score("q", ["a"])
+    assert "instruct" not in client.calls[0]["json"]["parameters"]
