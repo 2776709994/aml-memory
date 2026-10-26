@@ -1,4 +1,4 @@
-﻿"""Replay a public dataset through the real HTTP contract and score retrieval.
+"""Replay a public dataset through the real HTTP contract and score retrieval.
 
 Why retrieval metrics instead of answer accuracy: the AML answer model (gpt-4o-mini)
 and judge are frozen and not available offline, but every point of end-to-end score
@@ -89,6 +89,7 @@ class QAResult:
     elapsed_ms: float
     top_preview: list[str] = field(default_factory=list)
     contents: list[str] = field(default_factory=list)
+    options: list[str] = field(default_factory=list)
     ans_str: bool = False
     ans_tok: float = 0.0
 
@@ -189,6 +190,7 @@ def run(
                         str(item.get("content") or "")[:200] for item in items[:previews]
                     ],
                     contents=item_contents if keep_content else [],
+                    options=list(qa.options or []),
                     ans_str=ans_str,
                     ans_tok=ans_tok,
                 )

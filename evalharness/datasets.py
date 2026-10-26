@@ -7,7 +7,9 @@ be measured without the platform's answer model or judge.
 """
 from __future__ import annotations
 
+import ast
 import calendar
+import csv
 import datetime as _dt
 import json
 import re
@@ -409,11 +411,108 @@ def _beam_time(value: Any) -> _dt.datetime | None:
     return parse_session_time(text)
 
 
+_PERSONA_PREFIX = re.compile(r"^\s*(User|Assistant|System|Persona)\s*:\s*", re.I)
+
+
+def _parse_options(raw: Any) -> list[str]:
+    """PersonaMem ships `all_options` as a JSON-encoded string, but quoting is not
+    consistent between releases (JSON in some rows, a Python repr in others), so try
+    both parsers before falling back to splitting on the "(a)"/"(b)" markers."""
+    if isinstance(raw, (list, tuple)):
+        return [str(item) for item in raw]
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    for parser in (json.loads, ast.literal_eval):
+        try:
+            value = parser(text)
+        except (ValueError, SyntaxError, TypeError):
+            continue
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value]
+    return [part.strip() for part in re.split(r"\n|(?=\([a-d]\))", text) if part.strip()]
+
+
+def load_personamem(path: str | Path) -> list[Instance]:
+    """PersonaMem (multiple-choice, preference-tracking).
+
+    One instance per (shared context, prefix length) pair rather than per question: the
+    same sliced conversation answers dozens of questions, and re-ingesting it for each
+    would multiply the embedding bill for no measurement gain.  Questions carry their
+    option list, which is what makes this corpus useful — it is the only one we have
+    where the platform sends `options`, so it is the only way to test what our retrieval
+    does with them.
+    """
+    root = Path(path)
+    questions = root / "questions_32k.csv" if root.is_dir() else root
+    if not questions.exists():
+        candidates = sorted(p for p in root.glob("questions_*.csv"))
+        if not candidates:
+            raise FileNotFoundError(f"no questions_*.csv under {root}")
+        questions = candidates[-1]
+    contexts_path = questions.parent / questions.name.replace("questions_", "shared_contexts_").replace(
+        ".csv", ".jsonl"
+    )
+    contexts: dict[str, list[dict[str, Any]]] = {}
+    with contexts_path.open(encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line:
+                contexts.update(json.loads(line))
+
+    groups: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    with questions.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            key = (row["shared_context_id"], int(row.get("end_index_in_shared_context") or 0))
+            groups.setdefault(key, []).append(row)
+
+    instances: list[Instance] = []
+    for (context_id, end_index), rows in sorted(groups.items(), key=lambda item: item[0]):
+        blocks = contexts.get(context_id) or []
+        if not blocks:
+            continue
+        turns: list[Turn] = []
+        for index, block in enumerate(blocks[: end_index or len(blocks)]):
+            role = str(block.get("role", "user"))
+            text = str(block.get("content", "")).strip()
+            if not text:
+                continue
+            speaker = role.capitalize() if role != "system" else "Persona"
+            text = _PERSONA_PREFIX.sub("", text, count=1)
+            turns.append(Turn(speaker=speaker, text=text, dia_id=str(index)))
+        if not turns:
+            continue
+        sample_id = f"pm-{context_id[:10]}-{end_index}"
+        qas = [
+            QA(
+                question=str(row.get("user_question_or_message") or "").strip(),
+                answer=str(row.get("correct_answer") or "").strip(),
+                evidence=[],
+                category=str(row.get("question_type") or "personamem"),
+                options=_parse_options(row.get("all_options")),
+            )
+            for row in rows
+        ]
+        qas = [qa for qa in qas if qa.question]
+        if not qas:
+            continue
+        instances.append(
+            Instance(
+                sample_id=sample_id,
+                speakers=("User", "Assistant"),
+                sessions=[Session(index=0, when=None, turns=turns)],
+                qas=qas,
+            )
+        )
+    return instances
+
+
 LOADERS = {
     "locomo": load_locomo,
     "locomo-refined": load_locomo_refined,
     "locomo_refined": load_locomo_refined,
     "longmemeval": load_longmemeval,
+    "personamem": load_personamem,
     "beam": load_beam,
 }
 

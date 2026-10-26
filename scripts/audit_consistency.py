@@ -40,6 +40,15 @@ docs = documented_keys(ROOT / "README.md", ROOT / "DEPLOY.md", ROOT / "docs" / "
 
 # Consumed by the container stack, not by the Python settings object.
 DEPLOY_ONLY = {"AML_DOMAIN", "AML_MEMORY_LIMIT"}
+# Read by the offline eval harness (`evalharness/`), never by the service: the reader
+# proxy and judge are local measuring instruments, so they must not be part of the
+# deployed configuration at all.
+TOOLING_ONLY = {
+    "PROXY_BASE_URL",
+    "PROXY_API_KEY",
+    "PROXY_ANSWER_MODEL",
+    "PROXY_JUDGE_MODEL",
+}
 
 print(f"config.py env names : {len(cfg)}")
 print(f".env.example keys   : {len(example)}")
@@ -48,10 +57,10 @@ print(f".env keys (real)    : {len(env)}")
 missing_in_example = sorted(cfg - example)
 if missing_in_example:
     issues.append(f"env names read by config.py but absent from .env.example: {missing_in_example}")
-stale_in_example = sorted(example - cfg - DEPLOY_ONLY)
+stale_in_example = sorted(example - cfg - DEPLOY_ONLY - TOOLING_ONLY)
 if stale_in_example:
     issues.append(f".env.example declares keys config.py never reads: {stale_in_example}")
-unknown_in_env = sorted(k for k in env - cfg - DEPLOY_ONLY)
+unknown_in_env = sorted(k for k in env - cfg - DEPLOY_ONLY - TOOLING_ONLY)
 if unknown_in_env:
     issues.append(f".env sets keys config.py never reads: {unknown_in_env}")
 missing_in_docs = sorted(cfg - (docs | example))
