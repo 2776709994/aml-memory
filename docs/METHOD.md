@@ -72,6 +72,10 @@ input.
    reasoning / rule / negation / multiple-choice) and emits a small set of query
    variants (the question, its `options` concatenated for MCQ, and entity-focused
    variants). This is deterministic; `AML_QUERY_LLM=0` in the submitted build.
+   Multiple-choice suites send an `options` array whose texts carry the subject the
+   question omits ("what would you suggest?"), so both a joined-options variant and
+   per-option variants are emitted; `AML_OPTION_QUERY=0` measures the cost of that
+   trick, because options also retrieve turns resembling a distractor.
 2. **Dense channel.** Query vectors (one per variant) are dotted against the user's
    normalised matrix — exhaustive search, no ANN. `user_id` is the isolation
    boundary and one user is one conversation, so exact search is both correct and
@@ -82,9 +86,13 @@ input.
 4. **Fusion.** Weighted **RRF on ranks** (`k=20`), dense weight 1.0, BM25 weight
    1.0, candidate depth 500. Ranks, not scores: the two channels are not
    calibrated, and rank fusion is what survives a change of embedder.
-5. **Rerank.** The fused head (60 candidates) is scored by `gte-rerank-v2` through
-   the DashScope rerank endpoint; on failure the reranked scores are ignored and the
-   fused order stands (the service degrades, it does not error).
+5. **Rerank.** The fused head is scored by a hosted cross-encoder — `gte-rerank-v2`
+   (DashScope) or `Qwen3-Reranker-4B` (SiliconFlow), both 30–60 documents deep,
+   whichever the deployment configures; the score is blended with the fused rank
+   (`RERANK_WEIGHT`, 0.7) and documents are truncated at `RERANK_MAX_DOC_CHARS` (320)
+   because document tokens dominate the bill. On timeout or provider error the
+   reranked scores are ignored and the fused order stands (`fallbacks` counter in
+   `/admin/stats`): the service degrades, it does not error.
 6. **Assembly.** Dedupe (exact + Jaccard > `AML_DEDUPE_JACCARD`, default .85, compared
    on the statement body with the speaker/date header stripped, so the same sentence
    said on two dates is recognised as one memory), join short same-speaker runs

@@ -202,6 +202,17 @@ Read-outs that shaped the default configuration:
   caps the *number* of items (100) but not their size, so the top 30 hits carry
   ±2 same-session turns and the rest of the list carries ±1. Multi-hop is exactly
   the case where the second evidence turn sits one turn away from the retrieved one.
+* **Multiple-choice questions need the options in the query.** The question alone
+  ("what would you suggest I do?") shares almost no vocabulary with the memory that
+  answers it, while the options name the very activities, people or preferences that
+  appear in that memory. The joined-options variant and the per-option variants ride
+  the same switch (`AML_OPTION_QUERY`), which exists so the trade-off can be measured:
+  options also retrieve turns that merely resemble a *distractor*.
+* **Two "obvious" fixes measured neutral and ship off, with the numbers kept**: a
+  confidence gate that trims weak lists for abstention questions (separates answerable
+  from unanswerable questions poorly: at 0.30 it costs 8.6 % of answerable questions
+  to catch 25.5 % of the adversarial ones) and an annotation that prints the superseded
+  wording under the newer record (+1 net question on 78 knowledge-update questions).
   Radius 3 buys nothing further (R@1 .754, recall-all .927).
 * **Neighbour expansion and same-speaker merging are neutral at `top_k=100` of a
   ~500-turn corpus** (identical scores with them disabled). They are kept because
@@ -230,6 +241,7 @@ differences between configurations mean anything.
 | single-turn items, widening off | .640 | .759 | .528 | .394 | .485 | 5.3 k |
 | **two-tier widening (shipped)** | **.675** | **.808** | .512 | **.465** | .485 | 11.2 k |
 | + session-scoped expansion, per-part headers, body-level dedupe | .679 | .807 | .525 | .465 | .515 | 11.2 k |
+| **+ Qwen3-Reranker-4B at depth 30 (submitted build)** | **.704** | **.812** | **.595** | .455 | **.691** | 10.7 k |
 
 Scored over the whole suite, not a sample, and compared question by question:
 +140 questions won against 91 lost, i.e. **+3.5 points overall** (McNemar χ² = 9.97,
@@ -241,6 +253,15 @@ was neutral overall, and a dedupe threshold of .85 vs .70 changes retrieval not 
 so neither is a lever; the context volume is. Widening *every* rank by 2 instead of only
 the top 30 is also a wash (.673 vs .675) for 24 % more tokens, so the two-tier split
 stays: the cheap radius-1 window is enough to keep the tail's recall.
+
+**Reranker choice, measured end to end.** The last row is the same service with a
+different hosted cross-encoder: `Qwen3-Reranker-4B` (SiliconFlow, depth 30) instead of
+`gte-rerank-v2` (DashScope, depth 60). Retrieval precision is a hair *lower*
+(R@1 .730 vs .748) yet the answers are better (+2.9 overall, +8.3 temporal, +20.6
+open-domain, −1.0 multi-hop), because the errand the reader runs is not the errand a
+recall metric rewards: gte's top hits favour the turn holding the literal question
+words, while the Qwen reranker prefers the turn that answers the question. It is also
+cheaper per document and does not depend on a second vendor's balance.
 
 Failure analysis over 101 wrong verdicts (33 multi-hop, 29 open-domain, 26 temporal,
 13 single-hop) says the dominant multi-hop failure is **over-answering a list**, not
@@ -384,10 +405,16 @@ The ones that actually change behaviour:
 | `AML_EXHAUSTIVE_CAP` | 40 | item cap for counting/list questions (`top_k` still applies) |
 | `AML_ASSISTANT_PRIOR` | 1.0 | multiplier on assistant-role turns at ranking time (1.0 = no prior) |
 | `AML_UPDATE_BOOST` | 0.0 | recency tilt for "still …?" / "what is X now" questions only; 0.25 gave +1.3 pp R@1 on LongMemEval knowledge-update |
+| `AML_OPTION_QUERY` | `1` | multiple-choice calls send an `options` array; the option texts are added as one extra query variant, because the bare question ("what would you suggest?") carries almost no retrievable content |
+| `AML_UPDATE_ANNOTATE_TOP` | 0 | >0 appends the superseded wording under the newer record for that many top items (`[earlier note, 3 May 2023: …]`); off because the measured gain (+1 net question on LongMemEval knowledge-update, n=78) is inside offline noise |
+| `AML_UPDATE_ANNOTATE_SIM` | 0.70 | cosine above which a older turn is a candidate for that annotation |
+| `AML_UPDATE_ANNOTATE_WINDOW` | 3000 | how far back to look for the earlier half of a revision |
+| `AML_UPDATE_ANNOTATE_CHARS` | 160 | length cap on the quoted earlier wording |
 | `AML_RECENCY_PRIOR` | 0.0 | always-on recency tilt; neutral on LoCoMo-Refined but clearly negative on LongMemEval (0.464 → 0.432), so it ships off |
 | `AML_MERGE_MAX_UNITS` | 3 | same-speaker run length cap |
 | `AML_MAX_CONTENT_CHARS` | 700 | per-item soft cap (merged runs get 3×) |
-| `AML_TOTAL_CHAR_BUDGET` | 120000 | total characters handed to the reader |
+| `AML_EMBED_TEXT_MODE` | header | what the embedder sees: `header` (the stored record, speaker + date), `speaker` (name, no date) or `body` (neither); the stored record always keeps both |
+| `AML_TOTAL_CHAR_BUDGET` | 320000 | total characters handed to the reader (the 117,760-token answer budget is far larger than this) |
 | `AML_SCORE_FLOOR` | 0.0 | 0 keeps every candidate up to `top_k` |
 | `AML_RECENT_TAIL` | 0 | newest turns appended **after** the ranked list (streaming questions); never displaces a ranked item, so raising it only spends answer budget |
 | `AML_INDEX_CACHE_COUNT` / `AML_INDEX_CACHE_VECTORS` | 24 / 120000 | per-user matrix cache, bounded by users **and** rows (~470 MB of matrix at 1024-d) |

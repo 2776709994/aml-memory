@@ -116,7 +116,17 @@ class Settings:
     # is already wired: Reranker.score returns None on timeout and _rerank passes
     # the fused scores through).
     rerank_timeout_s: int = field(default_factory=lambda: _env_int("RERANK_TIMEOUT_S", 12))
+    # Rerank is billed per query+document token and dominated the experiment bill
+    # (¥156 of ¥185 at depth 60 over full-suite sweeps).  A cap on per-document length
+    # bounds the cost of one search without touching the measured depth.
+    rerank_max_doc_chars: int = field(
+        default_factory=lambda: _env_int("RERANK_MAX_DOC_CHARS", 320)
+    )
     max_content_chars: int = field(default_factory=lambda: _env_int("AML_MAX_CONTENT_CHARS", 700))
+    # What the embedder sees: "header" (the stored record, speaker + date), "speaker"
+    # (speaker name only) or "body" (no speaker, no date). The stored record always
+    # keeps both; this only changes the vector, and therefore the embedding cost.
+    embed_text_mode: str = field(default_factory=lambda: _env("AML_EMBED_TEXT_MODE", "header"))
     # The reader's answer budget on the leaderboard is ~117,760 input tokens, and it
     # keeps a *prefix* of our list, so unused budget is thrown away while extra tail
     # items cost nothing (they are dropped first if anything is dropped at all).
@@ -152,6 +162,26 @@ class Settings:
     # the answer prompt already prefers the recent fact on conflict.  This tilts the
     # ranking toward newer turns for that question type only; 0.0 keeps plain order.
     update_boost: float = field(default_factory=lambda: _env_float("AML_UPDATE_BOOST", 0.0))
+    # Multiple-choice questions arrive with an `options` array.  The question alone is
+    # usually contentless ("what would you suggest?"), so the option texts are added as
+    # an extra query variant.  Off switch exists because the same trick also retrieves
+    # turns that match a *distractor*, and we cannot measure that trade-off offline.
+    option_query: bool = field(default_factory=lambda: _env_bool("AML_OPTION_QUERY", True))
+    # Inline the superseded wording under the newer record, for the head of the list:
+    # "I live in Boston" then later "moved to Denver" is unanswerable for a reader that
+    # sees only one half and cannot tell which half is stale.  0 disables the pass.
+    update_annotate_top: int = field(
+        default_factory=lambda: _env_int("AML_UPDATE_ANNOTATE_TOP", 0)
+    )
+    update_annotate_sim: float = field(
+        default_factory=lambda: _env_float("AML_UPDATE_ANNOTATE_SIM", 0.70)
+    )
+    update_annotate_window: int = field(
+        default_factory=lambda: _env_int("AML_UPDATE_ANNOTATE_WINDOW", 3000)
+    )
+    update_annotate_chars: int = field(
+        default_factory=lambda: _env_int("AML_UPDATE_ANNOTATE_CHARS", 160)
+    )
     # A mild, always-on tilt toward newer turns.  The answer prompt tells the reader to
     # prefer the most recent statement when two conflict, so breaking near-ties by recency
     # matches the reader instead of asking it to sort the block itself.

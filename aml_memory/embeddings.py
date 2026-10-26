@@ -51,6 +51,43 @@ class Embedder:
         self._mem_lock = threading.Lock()
         self._client: httpx.Client | None = None
         self._client_lock = threading.Lock()
+        # Provider-level health, counted only when the network is actually used.
+        # A cache hit is not evidence that the provider still answers: on 2026-10-24
+        # the account ran dry, a repeated probe text hit the embed cache, and the
+        # "pipeline healthy" signal went green while every fresh Add failed.
+        self._state_lock = threading.Lock()
+        self.provider_calls = 0
+        self.provider_failures = 0
+        self.consecutive_failures = 0
+        self.last_provider_error: str | None = None
+        self.last_provider_ok_ns = 0
+
+    # ------------------------------------------------------------- provider health
+    @property
+    def remote_health(self) -> tuple[str, str | None]:
+        """("ok" | "failing" | "unknown", last error) from real provider calls only.
+
+        Cache hits deliberately do not count: only a call that crossed the network can
+        say whether the provider still answers.
+        """
+        with self._state_lock:
+            if self.provider_calls == 0:
+                return "unknown", None
+            if self.consecutive_failures:
+                return "failing", self.last_provider_error
+            return "ok", None
+
+    def _note_provider(self, ok: bool, error: str | None = None) -> None:
+        with self._state_lock:
+            self.provider_calls += 1
+            if ok:
+                self.consecutive_failures = 0
+                self.last_provider_ok_ns = time.time_ns()
+                self.last_provider_error = None
+            else:
+                self.provider_failures += 1
+                self.consecutive_failures += 1
+                self.last_provider_error = error
 
     # ------------------------------------------------------------------ public
     def embed_documents(self, texts: Sequence[str]) -> list[np.ndarray]:
@@ -285,7 +322,15 @@ class Embedder:
                         vectors.append(np.asarray(vec, dtype=np.float32) if vec is not None else None)
                     while len(vectors) < expected:
                         vectors.append(None)
+                    self._note_provider(True)
                     return vectors[:expected]
+                if resp.status_code == 400 and "dimension" in resp.text.lower() and "dimensions" in payload:
+                    # Some OpenAI-compatible relays reject `dimensions` outright. The
+                    # model's native width is what we store anyway, so retry once without
+                    # it instead of failing the whole Add.
+                    payload = {k: v for k, v in payload.items() if k != "dimensions"}
+                    LOG.warning("embedding endpoint rejected `dimensions`; retrying without it")
+                    continue
                 if resp.status_code in {400, 413} and len(payload.get("input", []) if isinstance(payload.get("input"), list) else []) > 1:
                     texts = payload["input"]  # type: ignore[index]
                     mid = max(1, len(texts) // 2)
@@ -296,10 +341,13 @@ class Embedder:
                     time.sleep(min(8.0, 0.6 * (2 ** attempt)) + random.random() * 0.3)
                     last_error = RuntimeError(f"embedding HTTP {resp.status_code}: {resp.text[:300]}")
                     continue
-                raise RuntimeError(f"embedding HTTP {resp.status_code}: {resp.text[:300]}")
+                error = f"embedding HTTP {resp.status_code}: {resp.text[:300]}"
+                self._note_provider(False, error)
+                raise RuntimeError(error)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 last_error = exc
                 time.sleep(min(8.0, 0.6 * (2 ** attempt)))
+        self._note_provider(False, str(last_error))
         raise RuntimeError(f"embedding failed after retries: {last_error}")
 
 

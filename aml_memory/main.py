@@ -14,6 +14,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -26,13 +27,26 @@ from pydantic import BaseModel, ConfigDict, Field
 from .config import Settings, load_settings
 from .embeddings import Embedder
 from . import governance
+
+_SECRET_PATTERN = re.compile(r"(sk-[A-Za-z0-9._\-]{6,}|[A-Za-z0-9]{32,})")
+
+
+def _sanitize(text: str | None, limit: int = 160) -> str | None:
+    """Short, secret-free description of a provider error.
+
+    /health is unauthenticated by design, so nothing that looks like a key may reach
+    it: providers like to echo the offending credential inside their error messages.
+    """
+    if not text:
+        return None
+    return _SECRET_PATTERN.sub("***", text)[:limit]
 from .ingest import Ingestor, parse_messages
 from .llm import LLM
 from .rerank import Reranker
 from .retrieve import Retriever
 from .store import Store
 
-VERSION = "1.12.0"
+VERSION = "1.13.0"
 LOG = logging.getLogger("aml")
 logging.basicConfig(
     level=os.environ.get("AML_LOG_LEVEL", "INFO").upper(),
@@ -182,12 +196,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # `embedding` is the one line that would have caught the 2026-10-24 outage
         # from outside: the model was revoked (403), every Add degraded to text-only,
         # and /health still said "ok" — so the platform retried into a hole for hours
-        # while the operator saw green. Cost: no I/O, one in-memory string.
+        # while the operator saw green. It is read from the embedder's own counters,
+        # i.e. from calls that actually crossed the network: a probe text that hits the
+        # embedding cache is not evidence that the provider still answers (that false
+        # positive is exactly how a monitor decides the outage is over).
+        provider_state, provider_error = embedder.remote_health
         return {
             "status": "ok",
             "service": "aml-memory",
             "version": VERSION,
-            "embedding": embed_state["value"],
+            "embedding": provider_state if provider_state != "unknown" else embed_state["value"],
+            "embedding_error": _sanitize(provider_error),
         }
 
     @app.get("/")
@@ -239,7 +258,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # the turn without a vector keeps it retrievable through BM25.
                 try:
                     vectors: list[Any] = (
-                        embedder.embed_documents([unit.text for unit in units]) if units else []
+                        embedder.embed_documents(
+                            [unit.embed_text or unit.text for unit in units]
+                        ) if units else []
                     )
                     embed_state["value"] = "ok"
                 except Exception as exc:  # noqa: BLE001
@@ -335,6 +356,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def stats(_: None = Depends(verify_auth)) -> dict[str, Any]:
         out = store.stats()
         out["rerank"] = reranker.stats()
+        # Which models the running build actually uses.  Names, not secrets: an operator
+        # (or the deployment agent) has to be able to confirm that the live process is
+        # on the *compliant* embedder without reading `.env` by hand.
+        out["models"] = {
+            "embedding": f"{settings.embed_provider}/{settings.embed_model}",
+            "embedding_dim": settings.embed_dim,
+            "rerank": (
+                f"{settings.rerank_provider}/{settings.rerank_model}"
+                if settings.rerank_provider not in {"none", ""}
+                else "none"
+            ),
+            "generative": "none",
+        }
         with embed_failure_lock:
             out["embed_failures"] = dict(embed_failures)
         return out

@@ -9,6 +9,7 @@ crowd out a distinct one.
 """
 from __future__ import annotations
 
+import re
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -16,7 +17,7 @@ from typing import Any, Iterable, Sequence
 
 import numpy as np
 
-from .bm25 import BM25, tokenize
+from .bm25 import STOPWORDS, BM25, tokenize
 from .config import Settings
 from .embeddings import Embedder
 from .llm import LLM
@@ -68,6 +69,37 @@ def _body_text(text: str) -> str:
 def _recency_key(unit: Any) -> tuple[int, int]:
     """Order turns by when they were said; undated turns sort first (oldest)."""
     return (int(unit.created_ms or 0), int(unit.seq or 0))
+
+
+_VALUE_TOKEN = re.compile(r"\d[\d:./-]*")
+_WORD = re.compile(r"[A-Za-z][A-Za-z'\-]+")
+_NON_VALUE = {
+    "i", "im", "ive", "id", "the", "a", "an", "and", "but", "so", "my", "me", "we",
+    "you", "he", "she", "it", "they", "was", "is", "are", "were", "been", "just",
+    "now", "then", "this", "that", "there", "here", "oh", "yeah", "yes", "no", "not",
+}
+
+
+def _value_tokens(text: str) -> set[str]:
+    """The parts of a turn that an update would change: numbers, dates, names, places.
+
+    "I live in Boston" and "I moved to Denver" share almost every content word; what
+    distinguishes them is `boston` vs `denver`.  Comparing these sets is therefore how
+    we tell a restatement from a revision without a model in the loop.  Capitalisation
+    is read off the raw text (the BM25 tokenizer lowercases everything) and a capital
+    that merely opens a sentence is not treated as a name.
+    """
+    body = _body_text(text)
+    out: set[str] = {match.group(0) for match in _VALUE_TOKEN.finditer(body)}
+    for match in _WORD.finditer(body):
+        word = match.group(0)
+        if not word[:1].isupper() or word.lower() in _NON_VALUE:
+            continue
+        prefix = body[: match.start()].rstrip()
+        if not prefix or prefix[-1] in ".!?":
+            continue
+        out.add(word.lower())
+    return out
 
 
 @dataclass
@@ -336,6 +368,7 @@ class Retriever:
         reserve = list(blocks)
         blocks = self._widen_top(index, blocks, plan)
         blocks = self._refill(index, blocks, reserve)
+        blocks = self._annotate_updates(index, blocks)
 
         out: list[Block] = []
         spent = 0
@@ -547,6 +580,92 @@ class Retriever:
             covered.update(block.ids)
             out.append(block)
         return out
+
+    def _id_positions(self, index: UserIndex) -> dict[str, int]:
+        pos = getattr(index, "_id_pos", None)
+        if pos is None:
+            pos = {unit_id: i for i, unit_id in enumerate(index.ids)}
+            try:
+                index._id_pos = pos
+            except AttributeError:
+                pass
+        return pos
+
+    def _annotate_updates(self, index: UserIndex, blocks: list[Block]) -> list[Block]:
+        """Attach the earlier statement behind a revision to the newer one.
+
+        Governance questions ("where do I live *now*?") are won or lost on whether the
+        stale half is visible AND marked stale: the reader is told to prefer the most
+        recent record when two conflict, but it can only apply that rule if it notices
+        the conflict.  So for each of the top blocks we look for an older turn that
+        says almost the same thing with a different value (number, date, name, place)
+        and append that older wording inline under the new one.
+
+        Everything here is lexical + one small matrix product: no model call, no extra
+        tokens sent to a provider, and the annotation is appended to the record rather
+        than replacing it, so nothing can be lost.
+        """
+        limit = int(self.settings.update_annotate_top)
+        if limit <= 0 or not blocks or index.matrix is None:
+            return blocks
+        window = max(1, int(self.settings.update_annotate_window))
+        floor = float(self.settings.update_annotate_sim)
+        chars = max(40, int(self.settings.update_annotate_chars))
+        units = index.units
+        pos = self._id_positions(index)
+        matrix = index.matrix
+
+        anchors: list[int] = []
+        for rank, block in enumerate(blocks[:limit]):
+            # Anchor on the NEWEST turn of the block: consecutive turns of one speaker
+            # merge into a single item, and the revision is always the last of them.
+            newest = block.ids[-1].split("+")[-1] if block.ids else ""
+            anchors.append(pos.get(newest, -1))
+
+        for rank, anchor_pos in enumerate(anchors):
+            if anchor_pos < 0:
+                continue
+            anchor = units[anchor_pos]
+            mine = _value_tokens(anchor.text)
+            if not mine:
+                continue
+            lo = max(0, anchor_pos - window)
+            span = matrix[lo:anchor_pos]
+            if span.size == 0:
+                continue
+            sims = span @ matrix[anchor_pos]
+            best: tuple[int, float] | None = None
+            for offset in np.nonzero(sims >= floor)[0]:
+                j = lo + int(offset)
+                other = units[j]
+                if other.seq >= anchor.seq:
+                    continue
+                values = _value_tokens(other.text)
+                if not values:
+                    continue
+                # A revision is a SWAP: each side carries a value the other lacks
+                # ("Boston"→"Denver", "Gold"→"Platinum").  One-sided extras are an
+                # elaboration, not a correction, and must not be labelled stale.
+                if not (mine - values) or not (values - mine):
+                    continue
+                cand = (j, float(sims[offset]))
+                if best is None or cand[1] > best[1]:
+                    best = cand
+            if best is None:
+                continue
+            old = units[best[0]]
+            note = _body_text(old.text).strip().replace("\n", " ")
+            if len(note) > chars:
+                note = note[:chars].rsplit(" ", 1)[0] + " ..."
+            stamp = f", {old.date_str}" if old.date_str else ""
+            block = blocks[rank]
+            blocks[rank] = Block(
+                ids=block.ids,
+                content=f"{block.content}\n  [earlier note{stamp}: {note}]",
+                score=block.score,
+                position=block.position,
+            )
+        return blocks
 
 
 def _day_distance(left: str, right: str) -> int:

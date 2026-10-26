@@ -73,8 +73,9 @@ class QueryAnalyzer:
         if not plan.sub_queries:
             plan.sub_queries = self._heuristic_subqueries(plan)
         # Option-aware retrieval: a multiple-choice question is often too vague on
-        # its own; each option is a useful hypothesis-specific probe.
-        if options and len(options) <= 6:
+        # its own; each option is a useful hypothesis-specific probe.  Gated by the
+        # same switch as the joined variant, so the A/B measures the whole strategy.
+        if options and len(options) <= 6 and self.settings.option_query:
             plan.sub_queries.extend(options[:6])
         return plan
 
@@ -108,6 +109,15 @@ class QueryAnalyzer:
             plan.recency = True
         if options:
             plan.qtypes.add("mcq")
+            # A multiple-choice question ("which response is most appropriate for this
+            # user?") says almost nothing on its own; the option texts carry the subject
+            # matter.  Retrieving with the bare question lands on unrelated turns.  The
+            # concatenated options are added as ONE extra query variant, so the plain
+            # question still competes in the fusion and cannot be outvoted by a single
+            # long distractor.
+            joined = " ".join(option.strip() for option in options if option.strip())
+            if joined and self.settings.option_query:
+                plan.sub_queries.append(f"{query.strip()} {joined}"[:1200])
         plan.entities = _entities(query)
         plan.dates = [d.strftime("%Y-%m-%d") for d in extract_dates(query)]
         if len(plan.entities) >= 2 or re.search(r"\b(both|respectively|each other|related|connection|relationship)\b", lowered):

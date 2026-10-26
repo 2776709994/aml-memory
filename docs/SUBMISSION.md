@@ -9,19 +9,19 @@ that commit** (the rules freeze the code version for the duration of a Full run)
 | Track | **Textual Memory** |
 | Division | **Open-source Methods** (prize-eligible) |
 | Public repository | <https://github.com/2776709994/aml-memory> |
-| Pinned commit | tag **`v1.6`** — resolve with `git rev-parse v1.6^{commit}`. The leaderboard version entry is `version_5cd19e479569` (same endpoints and token as `v1.2`); the live service reports its own build on `/health`. `v1.3` changed storage only (int8 vectors, 8 KiB pages, no duplicated embed-cache rows: 11.1 → 1.9 KB per turn); `v1.6` adds assembly correctness fixes (session-scoped merging, body-level duplicate detection, per-part headers) — public-suite retrieval numbers are unchanged and the reader proxy moves .675 → .679 |
+| Pinned commit | tag **`v1.13`** — resolve with `git rev-parse v1.13^{commit}`. The leaderboard version entry is the label bound to this key (same endpoints and token as `v1.2`); the live service reports its own build on `/health`, and the two must agree. History: `v1.3` changed storage only (int8 vectors, 8 KiB pages, no duplicated embed-cache rows: 11.1 → 1.9 KB per turn); `v1.6` added assembly correctness fixes; `v1.13` switches the hosted cross-encoder to Qwen3-Reranker-4B, adds the option-query variant, caps rerank documents at 320 chars and reports embedder health on `/health` |
 | License | MIT |
 | Add URL | `https://memory.thesamael.dpdns.org/add` |
 | Search URL | `https://memory.thesamael.dpdns.org/search` |
 | Health URL (optional) | `https://memory.thesamael.dpdns.org/health` |
 | Auth | `Authorization: Bearer <AML_API_KEY>` — the value of `AML_API_KEY` in the deployment's `.env` (`~/aml-memory/.env` on the server, never committed) |
-| Embedding model | `text-embedding-v4` (1024-dim, L2-normalised) |
+| Embedding model | `text-embedding-v4` (1024-dim, L2-normalised); the embedder sees the stored record (speaker + absolute date), `AML_EMBED_TEXT_MODE=header` |
 | Generative model inside add/search | **N/A — none is used** (rules permit only `gpt-4o-mini`; the service calls no LLM, query planning is rule-based) |
-| Reranker | `gte-rerank-v2` (hosted; rerankers are unrestricted) |
-| Method summary | Retrieval-only hybrid memory: per-turn records with speaker + absolute-date anchoring, dense cosine + BM25 fused by weighted RRF on ranks, hosted cross-encoder rerank, two-tier same-session context widening |
+| Reranker | `Qwen/Qwen3-Reranker-4B` (SiliconFlow, depth 30, documents truncated to 320 chars; rerankers are unrestricted) |
+| Method summary | Retrieval-only hybrid memory: per-turn records with speaker + absolute-date anchoring, dense cosine + BM25 fused by weighted RRF on ranks, hosted cross-encoder rerank, two-tier same-session context widening, multiple-choice option expansion |
 | Full method disclosure | [`docs/METHOD.md`](METHOD.md) |
-| Measured on LoCoMo-Refined | retrieval R@1 .748 / R@10 .957 / MRR .827 at `top_k=100`, 134 ms/query; end-to-end with the official reader template on all 1 382 questions **.675** with context widening vs **.640** without (n.s.-free paired test, McNemar p ≈ 0.002) |
-| Deployment | one command, idempotent: `deploy/bootstrap.sh` (Docker + Caddy) or `deploy/bootstrap-noroot.sh` (no Docker, no root: private venv, supervised processes, Cloudflare Tunnel); both pin `v1.6`, generate the API token, wait for HTTPS and run the 15-check contract probe — runbooks in `deploy/AGENT_DEPLOY.md` / `deploy/AGENT_DEPLOY_NOROOT.md` |
+| Measured on LoCoMo-Refined | retrieval R@1 .730 at `top_k=100` (gte-rerank-v2 scored .748 R@1 yet answered worse); end-to-end with the official reader template on all 1 382 questions **.704** with the submitted build vs **.675** for the previous one (+3.5 points, 140 questions won / 91 lost, McNemar χ² ≈ 9.97) |
+| Deployment | one command, idempotent: `deploy/bootstrap.sh` (Docker + Caddy) or `deploy/bootstrap-noroot.sh` (no Docker, no root: private venv, supervised processes, Cloudflare Tunnel); both pin `v1.13`, generate the API token, wait for HTTPS and run the 15-check contract probe — runbooks in `deploy/AGENT_DEPLOY.md` / `deploy/AGENT_DEPLOY_NOROOT.md` |
 | Contact / team | *fill in* |
 
 ## Evidence attached to the repo
@@ -30,8 +30,8 @@ that commit** (the rules freeze the code version for the duration of a Full run)
   `docs/METHOD.md` §5 (replays a public suite through the real app), including
   `answer.py`, which renders the official answer prompt and judge so the context
   volume is measured end to end rather than by recall alone.
-* `tests/` — 43 offline tests covering the API contract, the text pipeline, crash
-  safety, assembly behaviour and the deployment hardening paths.
+* `tests/` — 73 offline tests covering the API contract, the text pipeline, crash
+  safety, assembly behaviour, the reranker providers and the deployment hardening paths.
 * `scripts/verify_endpoint.py` — 15-check contract probe to run against the deployed
   URL before registering it (health without auth, 401s, write-then-search, replay,
   `top_k` clamping, empty result for an unknown user, 4xx on malformed input).

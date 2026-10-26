@@ -14,7 +14,7 @@ import shutil
 import sqlite3
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -80,9 +80,13 @@ class Unit:
     created_ms: int | None
     date_str: str
     text: str
-    prev_id: str | None
-    next_id: str | None
-    meta: dict[str, Any]
+    prev_id: str | None = None
+    next_id: str | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
+    # Text handed to the embedder. Defaults to `text`; kept separate so the stored
+    # record (what the reader sees) and the embedded string can differ without a
+    # schema change. See Ingestor.build_units for the variants.
+    embed_text: str | None = None
 
 
 @dataclass

@@ -115,6 +115,23 @@ def _split_long(text: str, limit: int = _MAX_UNIT_CHARS) -> list[str]:
     return pieces or [text[:limit]]
 
 
+def _embed_text(mode: str, speaker: str, header: str, part_text: str) -> str | None:
+    """Which string the embedder sees.
+
+    The stored record must carry the speaker and the absolute date (the reader needs
+    both), but the embedding does not have to: repeated speaker names and dates are
+    the noisiest part of a conversational corpus. Modes:
+      header  - embed the stored record verbatim (the long-standing behaviour)
+      speaker - embed "Speaker: body" without the date
+      body    - embed the body without speaker or date
+    Returns None for `header`, meaning "just use Unit.text".
+    """
+    if mode == "header":
+        return None
+    body = part_text[len(header):] if part_text.startswith(header) else part_text
+    return f"{speaker}: {body}" if mode == "speaker" else body
+
+
 class Ingestor:
     def __init__(self, settings: Settings, llm: LLM):
         self.settings = settings
@@ -131,6 +148,7 @@ class Ingestor:
         parsed = [m for m in messages if m.content]
         if not parsed:
             return []
+        mode = getattr(self.settings, "embed_text_mode", "header") or "header"
 
         # Session reference date: first explicit timestamp, else sentence-level cues.
         ref_dt = None
@@ -179,6 +197,7 @@ class Ingestor:
                         created_ms=created_ms,
                         date_str=date_label,
                         text=part_text,
+                        embed_text=_embed_text(mode, speaker, header, part_text),
                         prev_id=None,
                         next_id=None,
                         meta={
